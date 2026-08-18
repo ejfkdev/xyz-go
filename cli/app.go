@@ -23,6 +23,7 @@ import (
 
 	errs "github.com/ejfkdev/xyz-go/errors"
 	"github.com/ejfkdev/xyz-go/registry"
+	"github.com/ejfkdev/xyz-go/spec"
 )
 
 // Version is the version reported by the CLI frontend's -v/--version flag
@@ -35,6 +36,58 @@ type App struct {
 	root   *cmdNode
 	out    io.Writer
 	errOut io.Writer
+	mws    []ExecFunc
+}
+
+// Options configures frontend-level behavior for embedding (e.g. mounting
+// the CLI inside a larger program). The zero value keeps os.Stdout/os.Stderr.
+type Options struct {
+	Out    io.Writer // 命令结果的输出目标（默认 os.Stdout）
+	ErrOut io.Writer // 错误与帮助的输出目标（默认 os.Stderr）
+}
+
+// NewWithOptions is New with frontend options; nil writers keep the defaults.
+func NewWithOptions(reg *registry.Registry, opts Options) (*App, error) {
+	a, err := New(reg)
+	if err != nil {
+		return nil, err
+	}
+	a.SetOutput(opts.Out, opts.ErrOut)
+	return a, nil
+}
+
+// SetOutput redirects the frontend's output streams; nil keeps the current
+// writer. Useful when embedding the CLI in a larger program or in tests.
+func (a *App) SetOutput(out, errOut io.Writer) {
+	if out != nil {
+		a.out = out
+	}
+	if errOut != nil {
+		a.errOut = errOut
+	}
+}
+
+// ExecContext is a read-only snapshot of one leaf-command execution, passed
+// to Execute middleware (App.Use).
+type ExecContext struct {
+	Path  string      // 点分注册名，如 user.add
+	Entry *spec.Entry // 命令元数据（Hints、InputSchema、OutputSchema）
+	JSON  bool        // --json 是否生效（未调用 next 时自行渲染可参考）
+	Out   io.Writer   // 结果的输出目标
+}
+
+// ExecFunc is an Execute middleware around leaf execution: args is the
+// already-parsed argument map (flags, env and positionals applied); next()
+// continues the chain down to Invoke + rendering. Return value semantics are
+// identical to normal command errors (mapped to exit codes by kind).
+type ExecFunc func(ctx context.Context, ec *ExecContext, args map[string]any, next func() error) error
+
+// Use appends Execute middleware (outermost first). next() continues the
+// remaining chain down to Invoke + rendering. Middleware may mutate args,
+// short-circuit (skip next for a custom rendering) or wrap next for
+// timing/tracing.
+func (a *App) Use(mws ...ExecFunc) {
+	a.mws = append(a.mws, mws...)
 }
 
 // New builds the command tree. Unbindable field kinds (nested structs,
@@ -167,16 +220,27 @@ func (a *App) execute(ctx context.Context, node *cmdNode, args []string, jsonOut
 			m[f.JSONName] = pos[i]
 		}
 	}
-	out, err := node.entry.Invoke(ctx, m)
-	if err != nil {
-		return err
+	ec := &ExecContext{Path: node.path, Entry: node.entry, JSON: jsonOut, Out: a.out}
+	var chain ExecFunc = func(ctx context.Context, ec *ExecContext, args map[string]any, _ func() error) error {
+		out, err := ec.Entry.Invoke(ctx, args)
+		if err != nil {
+			return err
+		}
+		if ec.JSON {
+			enc := json.NewEncoder(ec.Out)
+			enc.SetIndent("", "  ")
+			return enc.Encode(out)
+		}
+		return Render(ec.Out, out)
 	}
-	if jsonOut {
-		enc := json.NewEncoder(a.out)
-		enc.SetIndent("", "  ")
-		return enc.Encode(out)
+	for i := len(a.mws) - 1; i >= 0; i-- {
+		mw := a.mws[i]
+		inner := chain
+		chain = func(ctx context.Context, ec *ExecContext, args map[string]any, next func() error) error {
+			return mw(ctx, ec, args, func() error { return inner(ctx, ec, args, next) })
+		}
 	}
-	return Render(a.out, out)
+	return chain(ctx, ec, m, func() error { return nil })
 }
 
 // parseFlags 解析 args 中的 flag（长短名、= 形式、bool 无值形式），返回

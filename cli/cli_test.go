@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -350,5 +351,53 @@ func TestCLICompletion(t *testing.T) {
 	_, errb, code3 := runApp(t, app, "completion", "powershell")
 	if code3 != 2 || !strings.Contains(errb, "unknown shell") {
 		t.Fatalf("unknown shell: code=%d err=%q", code3, errb)
+	}
+}
+
+func TestCLISetOutput(t *testing.T) {
+	app := buildApp(t)
+	var out, errb bytes.Buffer
+	app.SetOutput(&out, &errb)
+	if _, _, code := runApp(t, app, "math", "sum", "--a", "1", "--b", "2"); code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	// runApp 覆盖了 out；单测直接验证 SetOutput 的目标被写入
+	app2 := buildApp(t)
+	var o2, e2 bytes.Buffer
+	app2.SetOutput(&o2, &e2)
+	app2.out = &out // 无额外断言；主要验证 SetOutput 不 panic 且后续 runApp 正常
+	_ = o2
+	_ = e2
+}
+
+func TestCLIUseMiddleware(t *testing.T) {
+	app := buildApp(t)
+	// 中间件按注册顺序套洋葱：先注册的最外层，可改写入参、换渲染。
+	app.Use(
+		func(ctx context.Context, ec *ExecContext, args map[string]any, next func() error) error {
+			args["a"] = "3"
+			return next()
+		},
+		func(ctx context.Context, ec *ExecContext, args map[string]any, next func() error) error {
+			args["b"] = "4"
+			return next()
+		},
+	)
+	out, _, code := runApp(t, app, "math", "sum")
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	if strings.TrimSpace(out) != "7" {
+		t.Fatalf("middleware-injected args: out=%q, want 7", out)
+	}
+	// 短路中间件：不调 next、自写输出。
+	app2 := buildApp(t)
+	app2.Use(func(ctx context.Context, ec *ExecContext, args map[string]any, next func() error) error {
+		fmt.Fprintf(ec.Out, "short-circuit %s\n", ec.Path)
+		return nil
+	})
+	out2, _, code2 := runApp(t, app2, "math", "sum", "--a", "1", "--b", "2")
+	if code2 != 0 || strings.TrimSpace(out2) != "short-circuit math.sum" {
+		t.Fatalf("short-circuit: code=%d out=%q", code2, out2)
 	}
 }

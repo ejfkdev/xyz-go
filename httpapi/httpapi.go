@@ -164,3 +164,17 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 // registerOpenAPI 暴露一份由同源 InputSchema 生成的 OpenAPI 3 文档。
+
+// HandlerFor returns the standalone handler for one registered entry: the
+// full binding (query/path/header/body) and error mapping, without routing.
+// Mount it onto any router (gin.WrapH, echo, chi) or wrap it with your own
+// middleware; Handler below composes all routed entries plus /healthz and
+// /openapi.json.
+func HandlerFor(e *spec.Entry) http.HandlerFunc {
+	if e == nil {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			writeError(w, http.StatusNotFound, "not found")
+		}
+	}
+	return makeHTTPHandler(e)
+}
