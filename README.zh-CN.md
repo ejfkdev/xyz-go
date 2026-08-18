@@ -206,13 +206,14 @@ spec.Define("user.add", addUser).Summary("...").Register(reg) // spec 路径同�
 os.Exit(xyz.Run(reg, os.Args[1:]))                             // 需要 defer 清理时这样写
 
 srv := mcp.Server(reg, mcp.Options{Versions: []string{mcp.ProtocolV2026_07_28}})
-h, _ := httpapi.Handler(reg)  // 只取 HTTP 路由挂进自己的 mux（自带 /healthz 与 /openapi.json）
-app, _ := cli.New(reg)        // 只取 CLI 派发器（app.RunContext(ctx, args) 可透传取消）
+h, _ := httpapi.Handler(reg)      // 整表路由（自带 /healthz 与 /openapi.json）；单条用 httpapi.HandlerFor(entry) 挂任意路由器
+app, _ := cli.NewWithOptions(reg, cli.Options{Out: w, ErrOut: ew}) // 可注入输出流；app.SetOutput / app.Use(执行中间件) 同理
 
-// 需要自定义 context（优雅关停等）时，三个前端都有 Context 变体：
 mcp.RunContext(ctx, reg, args)
 cli.RunContext(ctx, reg, args)
 ```
+
+已在用 Cobra / Gin / Echo / chi？见[迁移指南](docs/adapters.md)，配套可运行示例 [examples/cobra](examples/cobra) 与 [examples/gin](examples/gin)：三种共存档位（换前端、挂单条处理器、借中间件积木），无需触碰核心。
 
 ## 依赖原则与体积
 

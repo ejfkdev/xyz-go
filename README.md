@@ -192,13 +192,15 @@ spec.Define("user.add", addUser).Summary("...").Register(reg) // explicit path
 os.Exit(xyz.Run(reg, os.Args[1:]))                            // for deferred cleanup in main
 
 srv := mcp.Server(reg, mcp.Options{Versions: []string{mcp.ProtocolV2026_07_28}})
-h, _ := httpapi.Handler(reg)  // mount only the HTTP routes into your mux (healthz & openapi included)
-app, _ := cli.New(reg)        // or only the CLI dispatcher (app.RunContext(ctx, args) propagates cancellation)
+h, _ := httpapi.Handler(reg)      // mount all HTTP routes (healthz & openapi included)
+addOne, _ := spec.Define(...).Register(reg) // 或 httpapi.HandlerFor(entry) 挂单条命令到任意路由器
+app, _ := cli.NewWithOptions(reg, cli.Options{Out: w, ErrOut: ew}) // 或 cli.New(reg) + app.SetOutput / app.Use(中间件)
 
-// ctx variants for graceful shutdown:
 mcp.RunContext(ctx, reg, args)
 cli.RunContext(ctx, reg, args)
 ```
+
+Already on Cobra / Gin / Echo / chi? See the [migration guide](docs/adapters.md) with runnable examples in [`examples/cobra`](examples/cobra) and [`examples/gin`](examples/gin) — three coexistence levels (replace the frontend, mount per-command handlers, or reuse middleware pieces), all without touching the core.
 
 ## Dependency policy & binary size
 
