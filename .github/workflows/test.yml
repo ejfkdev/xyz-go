@@ -1,0 +1,27 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        tags: ["", "nomcp", "nocli", "nohttp", "nocli,nomcp,nohttp"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - name: vet
+        run: go vet -tags "$TAGS" ./...
+        env:
+          TAGS: ${{ matrix.tags }}
+      - name: test
+        run: go test -tags "$TAGS" ./...
+        env:
+          TAGS: ${{ matrix.tags }}

@@ -1,0 +1,354 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+
+	errs "github.com/ejfkdev/xyz-go/errors"
+	"github.com/ejfkdev/xyz-go/registry"
+	"github.com/ejfkdev/xyz-go/spec"
+)
+
+type addArgs struct {
+	Name    string   `json:"name" desc:"用户名" required:"true" validate:"min=2" cli:"positional"`
+	Age     int      `json:"age" desc:"年龄" default:"18"`
+	Mode    string   `json:"mode" desc:"模式" enum:"fast,slow"`
+	Verbose bool     `json:"verbose" desc:"啰嗦输出"`
+	Tags    []string `json:"tags" desc:"标签"`
+	Token   string   `json:"-" secret:"true"`
+}
+
+type addResp struct {
+	Name string `json:"name"`
+	Age  int    `json:"age"`
+}
+
+func addHandler(_ context.Context, in *addArgs) (*addResp, error) {
+	if in.Name == "missing" {
+		return nil, errs.New(errs.KindNotFound, "no such user")
+	}
+	return &addResp{Name: in.Name, Age: in.Age}, nil
+}
+
+type sumArgs struct {
+	A int `json:"a" desc:"左操作数"`
+	B int `json:"b" desc:"右操作数"`
+}
+
+func sumHandler(_ context.Context, in *sumArgs) (int, error) { return in.A + in.B, nil }
+
+type listArgs struct {
+	Q string `json:"q" desc:"关键词"`
+}
+
+func listHandler(_ context.Context, _ *listArgs) ([]addResp, error) {
+	return []addResp{{Name: "alice", Age: 18}, {Name: "bob", Age: 25}}, nil
+}
+
+func buildApp(t *testing.T) *App {
+	t.Helper()
+	reg := registry.New()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := spec.Define("user.add", addHandler).
+		Summary("创建用户").
+		CLI(spec.CliHints{Fields: map[string]spec.CliFieldHint{
+			"age": {Shorthand: "a", EnvVar: "APP_AGE", Default: 25},
+		}}).
+		Register(reg)
+	must(err)
+	_, err2 := spec.Define("math.sum", sumHandler).Summary("求和").Register(reg)
+	must(err2)
+	_, err3 := spec.Define("user.list", listHandler).Summary("列表").Register(reg)
+	must(err3)
+	app, err := New(reg)
+	must(err)
+	return app
+}
+
+func runApp(t *testing.T, app *App, args ...string) (string, string, int) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	app.out = &out
+	app.errOut = &errb
+	code := app.Run(args)
+	return out.String(), errb.String(), code
+}
+
+func TestCLIPositionalFlagShorthand(t *testing.T) {
+	out, _, code := runApp(t, buildApp(t), "user", "add", "bob", "-a", "9")
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	if !strings.Contains(out, "bob") || !strings.Contains(out, "9") {
+		t.Fatalf("output missing values: %q", out)
+	}
+	// struct → aligned key/value lines
+	if !strings.Contains(out, "name") || !strings.Contains(out, "age") {
+		t.Fatalf("output missing field keys: %q", out)
+	}
+}
+
+func TestCLISliceAndBoolFlags(t *testing.T) {
+	out, _, code := runApp(t, buildApp(t), "user", "add", "bob", "--tags", "a,b", "--verbose")
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	_ = out
+}
+
+func TestCLIDefaultOverridesGlobal(t *testing.T) {
+	// age 全局默认 18，CLI 覆盖 25；不传 flag 时应显示 25。
+	out, _, code := runApp(t, buildApp(t), "user", "add", "bob")
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	if !strings.Contains(out, "25") || strings.Contains(out, "18") {
+		t.Fatalf("output = %q, want CLI default 25 instead of global 18", out)
+	}
+}
+
+func TestCLIEnvFallback(t *testing.T) {
+	t.Setenv("APP_AGE", "31")
+	out, _, code := runApp(t, buildApp(t), "user", "add", "bob")
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	if !strings.Contains(out, "31") {
+		t.Fatalf("output = %q, want env value 31", out)
+	}
+}
+
+func TestCLIJSONFlag(t *testing.T) {
+	out, _, code := runApp(t, buildApp(t), "user", "add", "bob", "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	if got["name"] != "bob" || got["age"] != float64(25) {
+		t.Fatalf("json = %v", got)
+	}
+}
+
+func TestCLITableForStructSlice(t *testing.T) {
+	out, _, code := runApp(t, buildApp(t), "user", "list", "--q", "x")
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("table lines = %d (%q), want header + dashes + 2 rows", len(lines), out)
+	}
+	if !strings.Contains(lines[0], "name") || !strings.Contains(lines[0], "age") {
+		t.Fatalf("header = %q", lines[0])
+	}
+	if !strings.Contains(lines[2], "alice") || !strings.Contains(lines[3], "bob") {
+		t.Fatalf("rows = %v", lines)
+	}
+}
+
+func TestCLIPrimitiveRendering(t *testing.T) {
+	app := buildApp(t)
+	out, _, code := runApp(t, app, "math", "sum", "--a", "1", "--b", "2")
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	if strings.TrimRight(out, "\n") != "3" {
+		t.Fatalf("primitive output = %q, want bare 3 without envelope", out)
+	}
+}
+
+func TestCLIVersionFlag(t *testing.T) {
+	app := buildApp(t)
+	for _, args := range [][]string{{"-v"}, {"--version"}, {"user", "add", "bob", "-v"}} {
+		out, _, code := runApp(t, app, args...)
+		if code != 0 {
+			t.Fatalf("%v: exit code = %d", args, code)
+		}
+		if !strings.Contains(out, "version dev") {
+			t.Fatalf("%v: output = %q, want version dev", args, out)
+		}
+	}
+}
+
+func TestCLIHelpFlag(t *testing.T) {
+	app := buildApp(t)
+	out, _, code := runApp(t, app, "user", "add", "--help")
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	for _, want := range []string{"Usage", "-a", "--age", "年龄", "<name>",
+		"(default 25)", "(env APP_AGE)", "(oneof fast|slow)"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("help output missing %q: %q", want, out)
+		}
+	}
+	// 根级帮助列出版本与 json 开关。
+	out2, _, _ := runApp(t, app, "--help")
+	if !strings.Contains(out2, "--version") || !strings.Contains(out2, "--json") {
+		t.Fatalf("root help missing global flags: %q", out2)
+	}
+}
+
+func TestCLIExitCodes(t *testing.T) {
+	app := buildApp(t)
+	// 业务错误 → 分类映射（not_found → 1）
+	out, errb, code := runApp(t, app, "user", "add", "missing")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if out != "" || !strings.Contains(errb, "no such user") {
+		t.Fatalf("out=%q err=%q, want message on stderr only", out, errb)
+	}
+	// 未知 flag → 用法错误 → 2
+	if _, _, code := runApp(t, app, "user", "add", "bob", "--nope"); code != 2 {
+		t.Fatalf("exit code = %d, want 2 for unknown flag", code)
+	}
+	// 缺必填位置参数 → 2
+	if _, _, code := runApp(t, app, "user", "add"); code != 2 {
+		t.Fatalf("exit code = %d, want 2 for missing positional", code)
+	}
+}
+
+func TestCLIRejectsNestedStruct(t *testing.T) {
+	type sub struct {
+		Level int `json:"level"`
+	}
+	type nestedArgs struct {
+		Sub sub `json:"sub"`
+	}
+	reg := registry.New()
+	if _, err := spec.Define("bad.nested", func(_ context.Context, _ *nestedArgs) (int, error) { return 0, nil }).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(reg); err == nil {
+		t.Fatal("want error for nested struct field")
+	}
+}
+
+func TestCLIRejectsRequiredAfterOptionalPositional(t *testing.T) {
+	type posArgs struct {
+		A string `json:"a" cli:"positional"`
+		B string `json:"b" cli:"positional" required:"true"`
+	}
+	reg := registry.New()
+	if _, err := spec.Define("bad.pos", func(_ context.Context, _ *posArgs) (int, error) { return 0, nil }).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(reg); err == nil {
+		t.Fatal("want error for required positional after optional")
+	}
+}
+
+func TestCLIEnvInjectedSkippedField(t *testing.T) {
+	// json:"-" + cli env 的字段：不产生 flag，但 env 值经 Go 字段名注入。
+	type secretArgs struct {
+		Name   string `json:"name" cli:"positional"`
+		Secret string `json:"-" secret:"true" cli:"env=TEST_SECRET"`
+	}
+	reg := registry.New()
+	if _, err := spec.Define("env.cmd", func(_ context.Context, in *secretArgs) (string, error) {
+		return "secret=" + in.Secret, nil
+	}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_SECRET", "s3cret")
+	out, _, code := runApp(t, app, "env", "cmd", "bob")
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	if !strings.Contains(out, "secret=s3cret") {
+		t.Fatalf("output = %q, want env-injected secret", out)
+	}
+}
+
+func TestCLIAliasDispatch(t *testing.T) {
+	reg := registry.New()
+	if _, err := spec.Define("user.add", addHandler).
+		Summary("创建用户").
+		CLI(spec.CliHints{Usage: "add <name>", Aliases: []string{"ua", "new"}}).
+		Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 别名等同子命令名；帮助里 usage 行不再重复路径段。
+	out, _, code := runApp(t, app, "user", "ua", "bob", "--age", "9")
+	if code != 0 || !strings.Contains(out, "bob") {
+		t.Fatalf("alias dispatch: code=%d out=%q", code, out)
+	}
+	out2, _, _ := runApp(t, app, "user", "new", "carol")
+	_ = out2
+	help, _, code2 := runApp(t, app, "user", "add", "--help")
+	if code2 != 0 {
+		t.Fatalf("help exit = %d", code2)
+	}
+	if !strings.Contains(help, "user add <name> [flags]") {
+		t.Fatalf("usage line wrong: %q", help)
+	}
+}
+
+func TestCLIContextPropagation(t *testing.T) {
+	// 取消的 ctx 必须穿透到 handler：优雅关停语义的基础。
+	type ctxArgs struct {
+		S string `json:"s"`
+	}
+	reg := registry.New()
+	if _, err := spec.Define("ctx.probe", func(c context.Context, _ *ctxArgs) (string, error) {
+		if c.Err() != nil {
+			return "canceled:" + c.Err().Error(), nil
+		}
+		return "alive", nil
+	}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 正常 ctx → alive
+	var o1, e1 bytes.Buffer
+	app.out, app.errOut = &o1, &e1
+	if code := app.RunContext(context.Background(), []string{"ctx", "probe"}); code != 0 || !strings.Contains(o1.String(), "alive") {
+		t.Fatalf("alive run: code=%d out=%q err=%q", code, o1.String(), e1.String())
+	}
+	// 取消的 ctx → 透传
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var o2, e2 bytes.Buffer
+	app.out, app.errOut = &o2, &e2
+	if code := app.RunContext(ctx, []string{"ctx", "probe"}); code != 0 || !strings.Contains(o2.String(), "canceled:context canceled") {
+		t.Fatalf("canceled run: code=%d out=%q err=%q", code, o2.String(), e2.String())
+	}
+}
+
+func TestCLICompletion(t *testing.T) {
+	app := buildApp(t)
+	out, _, code := runApp(t, app, "completion", "bash")
+	if code != 0 || !strings.Contains(out, "complete -F") || !strings.Contains(out, "user") {
+		t.Fatalf("bash completion: code=%d out=%q", code, out)
+	}
+	out2, _, _ := runApp(t, app, "completion", "fish")
+	if !strings.Contains(out2, "complete -c") {
+		t.Fatalf("fish completion: %q", out2)
+	}
+	_, errb, code3 := runApp(t, app, "completion", "powershell")
+	if code3 != 2 || !strings.Contains(errb, "unknown shell") {
+		t.Fatalf("unknown shell: code=%d err=%q", code3, errb)
+	}
+}

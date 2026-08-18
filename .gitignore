@@ -1,0 +1,13 @@
+# 构建产物
+/example
+/xyz-go
+*.test
+*.out
+coverage.*
+
+# macOS
+.DS_Store
+
+# 编辑器
+.idea/
+.vscode/
