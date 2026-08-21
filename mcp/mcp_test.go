@@ -162,6 +162,33 @@ func TestMCPDefaultsInjected(t *testing.T) {
 	}
 }
 
+// 客户端显式传入的入参不能被 MCP 专属默认值覆盖（默认值只补缺，不清赶显式值）。
+func TestMCPDefaultsDoNotOverrideExplicit(t *testing.T) {
+	reg := registry.New()
+	if _, err := spec.Define("def.cmd", sumHandler).
+		MCP(spec.MCPHints{Fields: map[string]spec.MCPFieldHint{
+			"a": {Default: 7},
+		}}).
+		Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := connectPair(t, reg, Options{})
+	res, err := cs.CallTool(context.Background(), &sdkmcp.CallToolParams{
+		Name:      "def.cmd",
+		Arguments: map[string]any{"a": float64(100)},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected isError result: %+v", res)
+	}
+	// 显式 a=100 应保留，b 走全局默认 10 → 110（而非被默认 7 覆盖成 17）。
+	if got, ok := res.StructuredContent.(float64); !ok || got != 110 {
+		t.Fatalf("structured content = %#v, want 110 (100 + global default 10)", res.StructuredContent)
+	}
+}
+
 func TestVersionFilterTransport(t *testing.T) {
 	allowed := versionSet([]string{ProtocolV2025_06_18})
 	tr := versionFilterTransport{Transport: &sdkmcp.StdioTransport{}, allowed: allowed}

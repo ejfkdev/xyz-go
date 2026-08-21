@@ -156,13 +156,8 @@ func RunContextWithOptions(ctx context.Context, reg *registry.Registry, args []s
 
 func runWithOptions(ctx context.Context, reg *registry.Registry, args []string, base Options) int {
 	transport, opts, err := parseArgs(args)
-	opts.mergeDefaults(base)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "mcp:", err)
-		fmt.Fprintln(os.Stderr, "用法: mcp stdio|sse|http [--addr :8080] [--versions 2025-06-18,2026-07-28] [--name N] [--server-version V]")
-		return 2
-	}
 	// 预设（--xyz.*）作为默认，命令行 flag 优先。
+	opts.mergeDefaults(base)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mcp:", err)
 		fmt.Fprintln(os.Stderr, "用法: mcp stdio|sse|http [--addr :8080] [--versions 2025-06-18,2026-07-28] [--name N] [--server-version V]")

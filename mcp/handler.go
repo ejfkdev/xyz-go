@@ -27,8 +27,12 @@ func makeHandler(e *spec.Entry, allowed map[string]bool) func(context.Context, *
 				return nil, errs.Wrap(errs.KindInvalidInput, err)
 			}
 		}
+		// 接口默认值只补「客户端未提供」的键；显式入参优先（与 CLI/HTTP 一致），
+		// 不能覆盖调用方传来的值。
 		for k, v := range e.MCPDefaults() {
-			args[k] = v
+			if _, ok := args[k]; !ok {
+				args[k] = v
+			}
 		}
 		out, err := e.Invoke(ctx, args)
 		if err != nil {
