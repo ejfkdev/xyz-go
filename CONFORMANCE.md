@@ -1,0 +1,39 @@
+# Conformance — xyz-go
+
+Specification target: [xyz-spec](https://github.com/ejfkdev/xyz-spec) **v0.1.0**.
+
+Status: **conformant (baseline anchor)** — xyz-go is one of the two reference
+implementations the specification was written from; where ambiguous, Go
+behaviour is normative.
+
+Deviations register: none.
+
+## Checklist
+
+Every Class A item (conformance.md) is implemented and covered by the
+following evidence:
+
+| Evidence | Covers |
+|---|---|
+| `go test ./...` (default tags) | A.1–A.42 pipeline, taxonomy, rendering, dispatcher semantics |
+| `go test -tags "nocli nomcp nohttp" ./...` and the six build-tag combinations in `.github/workflows/test.yml` | A.38–A.39 trim invariants, four-way feature matrix |
+| `cmd/example` (11 commands) | showcase fixture §3.1, invocation matrix §3.2 |
+| `cmd/tour`, `docs/adapters.md`, `examples/cobra`, `examples/gin` | A.41 embedding surfaces, §15.2 documentation |
+
+Golden outputs (conformance.md §3.3) were diff-verified byte-for-byte
+against the Go binary and cross-checked against xyz-rust where marked
+byte-exact (`file hash`, `math sum`, `math div`, `/healthz`, the error
+lines' exit codes).
+
+## Showcase evidence
+
+The fixture program runs with `go run ./cmd/example`; all commands of the
+§3.2 matrix behave as specified, including `search query --query golang`
+(CLI default k=25) and the `--q`-is-an-unknown-flag behaviour now pinned by
+the golden scenarios.
+
+## Deviations
+
+None. See
+[deviations.md](https://github.com/ejfkdev/xyz-spec/blob/main/deviations.md)
+for the register and xyz-rust's entries.
