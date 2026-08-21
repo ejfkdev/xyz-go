@@ -17,6 +17,11 @@ func stripXYZFlags(args []string, cfg *Config) ([]string, error) {
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if a == "--" {
+			// 终止符之后全是位置参数：不再剥内置参数，原样保留。
+			out = append(out, args[i:]...)
+			break
+		}
 		value := func() (string, error) {
 			if i+1 >= len(args) {
 				return "", fmt.Errorf("flag %s needs an argument", a)

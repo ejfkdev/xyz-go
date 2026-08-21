@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
+	"strings"
 
 	errs "github.com/ejfkdev/xyz-go/errors"
 	"github.com/ejfkdev/xyz-go/registry"
@@ -70,17 +72,26 @@ func makeHTTPHandler(e *spec.Entry) http.HandlerFunc {
 		for k, v := range e.HTTPDefaults() {
 			m[k] = v
 		}
-		// JSON body 作为基础入参（非 GET/HEAD 且带体时解析）。
+		// JSON body 作为基础入参（非 GET/HEAD 且带体时解析）；
+		// 读出的字节同时服务于后文的 form 绑定（避免二读 body）。
+		var bodyBytes []byte
 		if r.Body != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes)); err == nil && len(body) > 0 {
+				bodyBytes = body
 				var parsed map[string]any
-				if json.Unmarshal(body, &parsed) == nil {
+				jsonDeclared := strings.Contains(r.Header.Get("Content-Type"), "application/json")
+				switch {
+				case json.Unmarshal(body, &parsed) == nil:
 					for k, v := range parsed {
 						m[k] = v
 					}
-				} else {
+				case jsonDeclared:
+					// 显式声明 JSON 却解析失败：报 400。
 					writeError(w, http.StatusBadRequest, "invalid JSON body")
 					return
+				default:
+					// 非 JSON 声明且解析失败（如表单体）：交给后续 form 绑定，
+					// 不在此处提前判死。
 				}
 			}
 		}
@@ -113,8 +124,8 @@ func makeHTTPHandler(e *spec.Entry) http.HandlerFunc {
 					m[f.JSONName] = v
 				}
 			case "form":
-				if err := r.ParseForm(); err == nil {
-					if vs, ok := r.PostForm[f.JSONName]; ok && len(vs) > 0 {
+				if formVals, err := url.ParseQuery(string(bodyBytes)); err == nil {
+					if vs, ok := formVals[f.JSONName]; ok && len(vs) > 0 {
 						m[f.JSONName] = vs[0]
 					}
 				}

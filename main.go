@@ -102,6 +102,9 @@ func RunConfig(reg *registry.Registry, args []string, cfg Config) int {
 	}
 	// 壳能力：-v/--version 由根派发器管，任何能力组合下都可用。
 	for _, a := range args {
+		if a == "--" {
+			break // "--" 之后是位置参数，不再识别 -v
+		}
 		if a == "-v" || a == "--version" {
 			fmt.Fprintf(os.Stdout, "%s version %s\n", filepath.Base(os.Args[0]), Version)
 			return 0

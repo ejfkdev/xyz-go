@@ -116,6 +116,9 @@ func (a *App) RunContext(ctx context.Context, args []string) int {
 		bin = "app"
 	}
 	for _, arg := range args {
+		if arg == "--" {
+			break // 之后的 token 全是位置参数，-v 不再算开关
+		}
 		if arg == "-v" || arg == "--version" {
 			fmt.Fprintf(a.out, "%s version %s\n", bin, Version)
 			return 0
@@ -123,12 +126,21 @@ func (a *App) RunContext(ctx context.Context, args []string) int {
 	}
 	jsonOut := false
 	filtered := make([]string, 0, len(args))
+	pastDoubleDash := false
 	for _, arg := range args {
-		if arg == "--json" {
-			jsonOut = true
+		if pastDoubleDash {
+			filtered = append(filtered, arg)
 			continue
 		}
-		filtered = append(filtered, arg)
+		switch arg {
+		case "--":
+			pastDoubleDash = true
+			filtered = append(filtered, arg)
+		case "--json":
+			jsonOut = true
+		default:
+			filtered = append(filtered, arg)
+		}
 	}
 	if err := a.execute(ctx, a.root, filtered, jsonOut, bin); err != nil {
 		fmt.Fprintln(a.errOut, err)

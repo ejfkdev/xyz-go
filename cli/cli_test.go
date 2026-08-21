@@ -401,3 +401,23 @@ func TestCLIUseMiddleware(t *testing.T) {
 		t.Fatalf("short-circuit: code=%d out=%q", code2, out2)
 	}
 }
+
+func TestCLIDoubleDashTerminator(t *testing.T) {
+	app := buildApp(t)
+	// "--" 之后全是位置参数：-v / --json 不再是开关。
+	out, ver, code := runApp(t, app, "user", "add", "--", "-v")
+	if code != 0 || !strings.Contains(out, "-v") {
+		t.Fatalf("-v as positional: code=%d out=%q", code, out)
+	}
+	if strings.Contains(ver, "version") || strings.Contains(ver, "dev") {
+		t.Fatalf("version should not trigger after --: %q", ver)
+	}
+	out2, err2, code2 := runApp(t, app, "user", "add", "--", "--json")
+	if code2 != 0 || !strings.Contains(out2, "--json") {
+		t.Fatalf("--json as positional: code=%d out=%q err=%q", code2, out2, err2)
+	}
+	// 未带 -- 时版本照旧（回归确认没砍坏）。
+	if _, _, code3 := runApp(t, app, "-v"); code3 != 0 {
+		t.Fatalf("-v before -- should still work: %d", code3)
+	}
+}

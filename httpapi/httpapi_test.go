@@ -301,3 +301,33 @@ func TestGzipMiddleware(t *testing.T) {
 		t.Fatalf("gunzipped = %q", buf.String())
 	}
 }
+
+func TestHTTPFormBinding(t *testing.T) {
+	reg := buildHTTPReg(t)
+	if _, err := spec.Define("form.submit", func(_ context.Context, in *struct {
+		X string `json:"x" http:"form"`
+	}) (string, error) {
+		return "x=" + in.X, nil
+	}).
+		HTTP(spec.HTTPHints{Method: "POST", Path: "/form"}).
+		Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	h := mustHandler(t, reg)
+	// 表单体（非 JSON 声明）走 form 绑定，且不能被 JSON 解析误杀。
+	req := httptest.NewRequest("POST", "/form", strings.NewReader("x=hello"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "x=hello") {
+		t.Fatalf("form binding: code=%d body=%q", rec.Code, rec.Body.String())
+	}
+	// 显式声明 JSON 但坏体 → 400。
+	req2 := httptest.NewRequest("POST", "/form", strings.NewReader("{oops"))
+	req2.Header.Set("Content-Type", "application/json")
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, req2)
+	if rec2.Code != 400 {
+		t.Fatalf("declared-JSON bad body: code=%d, want 400", rec2.Code)
+	}
+}

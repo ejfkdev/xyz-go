@@ -306,6 +306,21 @@ func rawUint64(raw any) (uint64, error) {
 		return uint64(v), nil
 	case uint64:
 		return v, nil
+	case int8:
+		if v < 0 {
+			return 0, fmt.Errorf("expect unsigned integer, got %d", v)
+		}
+		return uint64(v), nil
+	case int16:
+		if v < 0 {
+			return 0, fmt.Errorf("expect unsigned integer, got %d", v)
+		}
+		return uint64(v), nil
+	case int32:
+		if v < 0 {
+			return 0, fmt.Errorf("expect unsigned integer, got %d", v)
+		}
+		return uint64(v), nil
 	case int:
 		if v < 0 {
 			return 0, fmt.Errorf("expect unsigned integer, got %d", v)

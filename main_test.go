@@ -181,3 +181,17 @@ func TestStripXYZFlags(t *testing.T) {
 		t.Fatal("bad timeout accepted")
 	}
 }
+
+func TestStripXYZFlagsStopsAtDoubleDash(t *testing.T) {
+	cfg := Config{}
+	rest, err := stripXYZFlags([]string{"serve", "--", "--xyz.bearer=hacked"}, &cfg)
+	if err != nil {
+		t.Fatalf("stripXYZFlags: %v", err)
+	}
+	if len(cfg.BearerTokens) != 0 {
+		t.Fatalf("builtin flags after -- must not be stripped: %v", cfg.BearerTokens)
+	}
+	if len(rest) != 3 || rest[2] != "--xyz.bearer=hacked" {
+		t.Fatalf("rest = %v, want tokens preserved verbatim", rest)
+	}
+}
