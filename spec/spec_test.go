@@ -308,3 +308,39 @@ func TestOutputSchema(t *testing.T) {
 		t.Fatalf("list output schema = %+v", list.OutputSchema)
 	}
 }
+
+func TestValidateFractionalThresholds(t *testing.T) {
+	// 非整数阈值作用在 float 字段上必须按实数比较（numericOf 不得截断）。
+	type fArgs struct {
+		Rate float64 `json:"rate" validate:"gt=1.5"`
+		Gain float32 `json:"gain" validate:"min=0.5"`
+	}
+	invoke := func(rate float64, gain float32) error {
+		e, err := Define("f.cmd", func(_ context.Context, in *fArgs) (string, error) { return "ok", nil }).Entry()
+		if err != nil {
+			t.Fatalf("Entry: %v", err)
+		}
+		_, err = e.Invoke(context.Background(), map[string]any{"rate": rate, "gain": gain})
+		return err
+	}
+	if err := invoke(1.6, 0.6); err != nil {
+		t.Fatalf("in-range floats rejected: %v", err)
+	}
+	if err := invoke(1.5, 0.6); err == nil || !strings.Contains(err.Error(), "gt") {
+		t.Fatalf("gt=1.5 with 1.5 passed: %v", err)
+	}
+	if err := invoke(1.6, 0.4); err == nil || !strings.Contains(err.Error(), "min") {
+		t.Fatalf("min=0.5 with 0.4 passed: %v", err)
+	}
+	// 整数阈值在整数域的行为不变（收敛到 3 的 gt=2 半开）。
+	type iArgs struct {
+		N int `json:"n" validate:"gt=2"`
+	}
+	e, _ := Define("i.cmd", func(_ context.Context, in *iArgs) (string, error) { return "ok", nil }).Entry()
+	if _, err := e.Invoke(context.Background(), map[string]any{"n": float64(2)}); err == nil {
+		t.Fatal("gt=2 int threshold broken")
+	}
+	if _, err := e.Invoke(context.Background(), map[string]any{"n": float64(3)}); err != nil {
+		t.Fatalf("gt=2 int value 3 rejected: %v", err)
+	}
+}

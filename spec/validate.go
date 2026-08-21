@@ -156,20 +156,20 @@ func ruleOK(r vrule, v reflect.Value) bool {
 	}
 	switch r.key {
 	case "min", "max", "len":
-		var n int64
+		var n float64
 		switch v.Kind() {
 		case reflect.String, reflect.Slice, reflect.Array:
-			n = int64(v.Len())
+			n = float64(v.Len())
 		default:
 			n = numericOf(v)
 		}
 		switch r.key {
 		case "min":
-			return n >= int64(r.num)
+			return n >= r.num
 		case "max":
-			return n <= int64(r.num)
+			return n <= r.num
 		default:
-			return n == int64(r.num)
+			return n == r.num
 		}
 	case "gt", "gte", "lt", "lte":
 		if !isNumericKind(v.Kind()) {
@@ -178,13 +178,13 @@ func ruleOK(r vrule, v reflect.Value) bool {
 		n := numericOf(v)
 		switch r.key {
 		case "gt":
-			return n > int64(r.num)
+			return n > r.num
 		case "gte":
-			return n >= int64(r.num)
+			return n >= r.num
 		case "lt":
-			return n < int64(r.num)
+			return n < r.num
 		default:
-			return n <= int64(r.num)
+			return n <= r.num
 		}
 	case "oneof":
 		s := fmt.Sprintf("%v", v.Interface())
@@ -208,15 +208,16 @@ func isNumericKind(k reflect.Kind) bool {
 	return isIntKind(k) || isUintKind(k) || isFloatKind(k)
 }
 
-// numericOf 把数值类型规约成 int64（校验语境下足够，浮点比较步进由标签定义）。
-func numericOf(v reflect.Value) int64 {
+// numericOf 把数值类型规约成 float64 做比较：整数域无损（≤2^53），
+// 浮点域保留小数——避免 int64 截断导致 gt=1.5/min=0.5 这类阈值算错。
+func numericOf(v reflect.Value) float64 {
 	switch v.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return v.Int()
+		return float64(v.Int())
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return int64(v.Uint())
+		return float64(v.Uint())
 	case reflect.Float32, reflect.Float64:
-		return int64(v.Float())
+		return v.Float()
 	}
 	return 0
 }
