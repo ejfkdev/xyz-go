@@ -28,7 +28,8 @@ type cmdNode struct {
 	minPos   int
 	maxPos   int
 	children map[string]*cmdNode
-	order    []string // children 排序后的名字
+	order    []string     // children 排序后的名字
+	dflt     *cmdNode     // 默认子命令（未匹配命令段时整串参数转发给它）
 }
 
 // App is the CLI frontend for one registry.
@@ -117,6 +118,14 @@ func (a *App) addEntry(e *spec.Entry) error {
 		node.defs = append(node.defs, flagDef{
 			long: f.JSONName, short: f.CLI.Shorthand, kind: kind, field: f,
 		})
+	}
+
+	// Default：登记为父节点的默认子命令，一个父节点最多一个。
+	if e.CLI.Default {
+		if parent.dflt != nil && parent.dflt != node {
+			return fmt.Errorf("cli: command %q: default conflicts with existing default %q", e.Name, parent.dflt.path)
+		}
+		parent.dflt = node
 	}
 
 	// 位置参数：required 必须是前缀，否则语义有歧义。

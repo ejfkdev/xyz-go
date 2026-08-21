@@ -34,6 +34,11 @@ type CliHints struct {
 	Usage   string                  // one-line invocation, e.g. "add <name>"
 	Aliases []string                // alternative subcommand spellings
 	Hidden  bool                    // omit from help listings
+	// Default makes this command the default child of its parent node: when
+	// the first argument is not a registered command segment (and is not a
+	// flag), the whole argument list is forwarded to it (udf image.tar with
+	// default extract == udf extract image.tar).
+	Default bool
 	Fields  map[string]CliFieldHint // per-field CLI configuration
 }
 

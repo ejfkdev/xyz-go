@@ -181,6 +181,11 @@ func (a *App) execute(ctx context.Context, node *cmdNode, args []string, jsonOut
 		}
 		node, rest = child, rest[1:]
 	}
+	// 默认子命令：首段不是已注册命令段、也不是 flag（-h/-v/--json 等）时，
+	// 整串参数不消费地转发给默认子命令（udf img == udf extract img）。
+	if !node.leaf && node.dflt != nil && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+		node = node.dflt
+	}
 	for _, t := range rest {
 		if t == "-h" || t == "--help" {
 			a.printHelp(node, bin)

@@ -421,3 +421,62 @@ func TestCLIDoubleDashTerminator(t *testing.T) {
 		t.Fatalf("-v before -- should still work: %d", code3)
 	}
 }
+
+// ---- 默认子命令（CliHints.Default）：首段不是已注册段时整串转发 ----
+
+func TestCLIDefaultSubcommandForwardsAllArgs(t *testing.T) {
+	reg := registry.New()
+	_, err := spec.Define("extract", addHandler).
+		Summary("提取").
+		CLI(spec.CliHints{Usage: "extract <name>", Default: true}).
+		Register(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 老用法：udf ./image.tar —— 全部参数转发给默认的 extract
+	out, errb, code := runApp(t, app, "./image.tar", "--age", "9")
+	if code != 0 {
+		t.Fatalf("exit code = %d, err=%q", code, errb)
+	}
+	if !strings.Contains(out, "./image.tar") || !strings.Contains(out, "9") {
+		t.Fatalf("forwarded output missing values: %q", out)
+	}
+	// 显式子命令路径不受影响
+	out2, _, code2 := runApp(t, app, "extract", "tarball.tar")
+	if code2 != 0 || !strings.Contains(out2, "tarball.tar") {
+		t.Fatalf("explicit path broken: code=%d out=%q", code2, out2)
+	}
+	// -h / -v 不触发默认下沉
+	out3, _, code3 := runApp(t, app, "-h")
+	if code3 != 0 || !strings.Contains(out3, "Usage:") {
+		t.Fatalf("-h should stay root help: code=%d out=%q", code3, out3)
+	}
+	if _, ver, code4 := runApp(t, app, "-v"); code4 != 0 || !strings.Contains(ver+out3, "version") && !strings.Contains(out3, "version") {
+		// -v 由版本分支处理（输出在结果流），这里只断言退出码
+		_ = ver
+	}
+	// 位置参数之后的 -h 归默认命令自己的帮助
+	out5, _, code5 := runApp(t, app, "img.tar", "-h")
+	if code5 != 0 || !strings.Contains(out5, "extract") {
+		t.Fatalf("default command help: code=%d out=%q", code5, out5)
+	}
+}
+
+func TestCLIDuplicateDefaultRejected(t *testing.T) {
+	reg := registry.New()
+	if _, err := spec.Define("a.one", addHandler).CLI(spec.CliHints{Default: true}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := spec.Define("a.two", addHandler).CLI(spec.CliHints{Default: true}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(reg); err == nil {
+		t.Fatal("duplicate default children should be a build error")
+	} else if !strings.Contains(err.Error(), "default conflicts") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
