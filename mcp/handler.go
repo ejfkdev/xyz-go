@@ -57,7 +57,9 @@ func renderText(v any) string {
 	if err := cli.Render(&buf, v); err != nil {
 		return fmt.Sprintf("%v", v)
 	}
-	return buf.String()
+	// 规范（xyz-spec §12.5）裁决：textContent 不带尾随换行——渲染器按行收尾，
+	// 但 MCP 客户端把 textContent 当字符串读，尾随 \n 是噪音。
+	return strings.TrimRight(buf.String(), "\n")
 }
 
 // toStructured converts a result into a plain JSON-compatible value

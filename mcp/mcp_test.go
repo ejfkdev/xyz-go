@@ -104,6 +104,10 @@ func TestCallToolSuccess(t *testing.T) {
 	if !strings.Contains(text, "15") {
 		t.Fatalf("text content = %q, want sum 15", text)
 	}
+	// 规范 §12.5 裁决：textContent 不带尾随换行（渲染器按行收尾，客户端当字符串读）。
+	if strings.HasSuffix(text, "\n") {
+		t.Fatalf("text content must not carry a trailing newline: %q", text)
+	}
 }
 
 func TestCallToolStructuredPrimitive(t *testing.T) {

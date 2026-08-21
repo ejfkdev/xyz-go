@@ -11,7 +11,7 @@
 //	go run ./cmd/example user ua carol            # 别名
 //	go run ./cmd/example user rm alice            # 成功；user rm bob → not_found
 //	go run ./cmd/example user list                # []struct → 表格
-//	go run ./cmd/example search query --q golang  # CLI 专属默认 k=25
+//	go run ./cmd/example search query --query golang  # CLI 专属默认 k=25（--q 是未知 flag）
 //	go run ./cmd/example math sum --a 1 --b 2     # 基础类型 int
 //	go run ./cmd/example math div --a 10 --b 4    # float64；--b 0 → invalid_input
 //	go run ./cmd/example time now                 # time.Time
