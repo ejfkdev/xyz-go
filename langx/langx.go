@@ -122,14 +122,17 @@ func placeholder(i int) string {
 	}
 }
 
-// lookup 取内置译文（en 为规范文案，zh 为参考译文）。
+// lookup 取内置译文（en 为规范文案，zh 为参考译文）。目录未收录的键
+// MUST 回退键名本身（绝不返回空串、绝不 panic）。
 func lookup(l Language, key string) string {
-	switch l {
-	case ZhCn:
-		return zhTexts[key]
-	default:
-		return enTexts[key]
+	table := enTexts
+	if l == ZhCn {
+		table = zhTexts
 	}
+	if s, ok := table[key]; ok {
+		return s
+	}
+	return key
 }
 
 // 目录：en 为规范（xyz-spec §15.8 的键表），zh-CN 为随库译文。

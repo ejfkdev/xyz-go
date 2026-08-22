@@ -232,16 +232,25 @@ func TestTryRunComposability(t *testing.T) {
 	if code != 0 || handled {
 		t.Fatalf("TryRun unknown top = (%d,%v), want (0,false)", code, handled)
 	}
-	// 已知路径/内建照常
-	if code, handled := TryRun(reg, []string{"a", "b", "--s", "x"}); !handled || code != 0 {
-		t.Fatalf("TryRun known = (%d,%v)", code, handled)
+	// 已知路径/内建照常（无 CLI 前端的构建走 stub：退出 1 仍属 handled）
+	wantKnownCode := 0
+	if !cliFrontend {
+		wantKnownCode = 1
+	}
+	if code, handled := TryRun(reg, []string{"a", "b", "--s", "x"}); !handled || code != wantKnownCode {
+		t.Fatalf("TryRun known = (%d,%v), want (%d,true)", code, handled, wantKnownCode)
 	}
 	if code, handled := TryRun(reg, []string{"-v"}); !handled || code != 0 {
 		t.Fatalf("TryRun -v = (%d,%v)", code, handled)
 	}
-	// 已知命令下的未知 flag 交给 CLI 自身报错（退出 2，handled=true）
-	if code, handled := TryRun(reg, []string{"a", "b", "--ghost"}); !handled || code != 2 {
-		t.Fatalf("TryRun known+--ghost = (%d,%v), want (2,true)", code, handled)
+	// 已知命令下的未知 flag 交给 CLI 自身报错（退出 2，handled=true；
+	// 无 CLI 前端的构建走 stub 退出 1）
+	wantGhostCode := 2
+	if !cliFrontend {
+		wantGhostCode = 1
+	}
+	if code, handled := TryRun(reg, []string{"a", "b", "--ghost"}); !handled || code != wantGhostCode {
+		t.Fatalf("TryRun known+--ghost = (%d,%v), want (%d,true)", code, handled, wantGhostCode)
 	}
 	// CLI Skip 的命令段视为未命中
 	reg2 := registry.New()
