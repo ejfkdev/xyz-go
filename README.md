@@ -180,6 +180,28 @@ example mcp http --addr :9000 --bearer a,b           # standalone MCP, same sche
 example mcp http --xyz.bearer a,b                    # prefixed form is equivalent
 ```
 
+## Custom help blocks
+
+Free text blocks, raw multi-line, printed verbatim (trailing newlines
+normalized to one); empty = no-op:
+
+```go
+// Overview top/bottom (Config) — app name, description, version, repo…
+xyz.MainConfig(xyz.Config{
+    HelpBefore: "udf v1.0.0 — inspect disk images\nhttps://github.com/example/udf",
+    HelpAfter:  "More examples: https://github.com/example/udf#examples",
+})
+// Per-command -h (CliHints):
+CLI(xyz.CliHints{Before: "extract — 解包镜像", After: "仓库: https://…"})
+```
+
+Block placement: `Before` at the very top of `-h` (ahead of the
+description), `After` at the very end (after Global Flags); leaf commands
+only. `HelpBefore`/`HelpAfter` surround the `help` overview (the after block
+prints even when the command table is hidden). No named block kinds are
+prescribed — examples, version lines, repository URLs and anything else are
+the user's own text.
+
 Waiting list (kept out to stay minimal — each lands in one iteration when asked): log file rotation, basic rate limiting.
 
 ## Embedding & multiple registries

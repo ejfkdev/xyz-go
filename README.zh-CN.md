@@ -196,6 +196,25 @@ xyz.MainConfig(xyz.Config{BearerTokens: []string{"s3cret"}, Addr: ":8080"})
 
 **待审议清单**（保持内核最小、按需补丁）：日志输出轮转（目前 stderr 直出、无文件）、基础限流。需要哪项直接说，逐项加即可。
 
+## 自定义帮助块
+
+纯文本自由块，多行原样输出（末尾多余换行归一为一个）；空块零影响：
+
+```go
+// 总览开头/结尾（Config）——程序名、描述、版本、仓库地址等自己拼
+xyz.MainConfig(xyz.Config{
+    HelpBefore: "udf v1.0.0 — 磁盘镜像查看工具\nhttps://github.com/example/udf",
+    HelpAfter:  "更多示例: https://github.com/example/udf#examples",
+})
+// 每条命令的 -h（CliHints）：
+CLI(xyz.CliHints{Before: "extract — 解包镜像", After: "仓库: https://…"})
+```
+
+块位置：`Before` 在 `-h` 最前（description 之前）、`After` 在最末（Global
+Flags 之后），仅叶子命令生效；`HelpBefore`/`HelpAfter` 环绕 `help` 总览
+（after 块在命令表被隐藏时也打印）。不规定命名块种类——示例、版本行、
+仓库地址等一切内容都是用户自己的文本。
+
 ## 嵌入式与多注册表
 
 单例链之外，还有显式注册表的纯函数路径（返回退出码、不结束进程，适合嵌入自己的服务、单元测试、多注册表）：
