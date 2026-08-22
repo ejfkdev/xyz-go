@@ -109,8 +109,8 @@ func Server(reg *registry.Registry, opts Options) (*sdkmcp.Server, error) {
 		&sdkmcp.ServerOptions{Instructions: opts.Instructions})
 	allowed := versionSet(opts.Versions)
 	for _, e := range reg.All() {
-		if e.MCP.Skip {
-			continue // 通道层面整体移除：不成为工具
+		if e.MCP.Skip || e.CLI.Daemon {
+			continue // 通道层面整体移除：不成为工具；Daemon 只属于 CLI
 		}
 		schemaJSON, err := json.Marshal(e.InputSchema)
 		if err != nil {

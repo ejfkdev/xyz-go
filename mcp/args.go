@@ -82,7 +82,23 @@ func parseArgs(args []string) (string, Options, error) {
 			i++
 			opts.Version = args[i]
 		case strings.HasPrefix(a, "-"):
-			return "", opts, fmt.Errorf("unknown flag %q", a)
+			// 未识别的 --key v / --key=v 透传为通道默认参数（与 serve 一致）。
+			raw := strings.TrimPrefix(a, "-")
+			raw = strings.TrimPrefix(raw, "-")
+			if k, v, ok := strings.Cut(raw, "="); ok {
+				if opts.Defaults == nil {
+					opts.Defaults = map[string]string{}
+				}
+				opts.Defaults[strings.TrimSpace(k)] = v
+			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				if opts.Defaults == nil {
+					opts.Defaults = map[string]string{}
+				}
+				opts.Defaults[strings.TrimSpace(raw)] = args[i+1]
+				i++
+			} else {
+				return "", opts, fmt.Errorf("flag needs an argument: --%s", raw)
+			}
 		default:
 			if positional == 0 {
 				transport = a

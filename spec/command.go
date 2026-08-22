@@ -42,6 +42,10 @@ type CliHints struct {
 	// Skip 从 CLI 通道整体移除该命令：不建子命令、别名不生效、不出现在
 	// completion。与 Hidden 的区别：Hidden 只是帮助列表藏起、仍可执行。
 	Skip bool
+	// Daemon 声明「长驻命令」：handler 阻塞到 ctx 取消再返回。语义：
+	// 隐含 HTTP/MCP 双 Skip（通道层面不消费）；执行时不渲染返回值
+	// （handler 的 error 照常分类映射）；ctx 取消即优雅关停、退出 0。
+	Daemon bool
 	// Before/After 是 -h 帮助的自定义文本块：分别插在帮助最前（description
 	// 之前）与最后（Global Flags 之后）。原样输出（多行、缩进自控；结尾换行
 	// 归一）。空 = 不插入。
@@ -64,9 +68,9 @@ type CliFieldHint struct {
 // binding locations can live on the http tags or here in Fields, with the
 // same merge semantics as CliHints.
 type HTTPHints struct {
-	Method  string                   // GET, POST, ...
-	Path    string                   // route pattern, e.g. "/users"
-	Timeout time.Duration            // per-request override; 0 keeps the frontend default
+	Method  string        // GET, POST, ...
+	Path    string        // route pattern, e.g. "/users"
+	Timeout time.Duration // per-request override; 0 keeps the frontend default
 	// Skip 从 HTTP 通道整体移除该命令：不注册路由、不进 /openapi.json。
 	// 比「不给 Method/Path」更声明式（适合只适合 CLI 的命令）。
 	Skip   bool

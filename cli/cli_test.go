@@ -548,7 +548,7 @@ func TestCLIDaemonCommandRunsUntilCancel(t *testing.T) {
 		<-ctx.Done()
 		close(stopped)
 		return "stopped", nil
-	}).CLI(spec.CliHints{Usage: "watch"}).HTTP(spec.HTTPHints{Skip: true}).MCP(spec.MCPHints{Skip: true}).Register(reg)
+	}).CLI(spec.CliHints{Usage: "watch", Daemon: true}).Register(reg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,6 +575,19 @@ func TestCLIDaemonCommandRunsUntilCancel(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("handler did not observe cancellation")
 	}
+}
+
+func TestDaemonMarkerExcludesChannelsCompact(t *testing.T) {
+	reg := registry.New()
+	type dArgs struct{}
+	if _, err := spec.Define("watch", func(_ context.Context, _ *dArgs) (string, error) {
+		return "rendered?", nil
+	}).CLI(spec.CliHints{Daemon: true}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	// CLI 树路径正常存在；返回值不渲染（守护语义）由 TestCLIDaemonCommandRunsUntilCancel 覆盖。
+	// HTTP/MCP 排除在各自包的测试里断言（cli 包无法导入 mcp，避免循环）。
+	_ = reg
 }
 
 func TestCLIHelpBlocks(t *testing.T) {

@@ -245,6 +245,10 @@ func (a *App) execute(ctx context.Context, node *cmdNode, args []string, jsonOut
 		if err != nil {
 			return err
 		}
+		// 长驻命令：达到 ctx 取消即优雅关停，不渲染返回值。
+		if ec.Entry.CLI.Daemon {
+			return nil
+		}
 		if ec.JSON {
 			enc := json.NewEncoder(ec.Out)
 			enc.SetIndent("", "  ")

@@ -290,6 +290,15 @@ func TestChannelDefaultsFlag(t *testing.T) {
 	}
 }
 
+func TestBareFlagPassthroughDefaults(t *testing.T) {
+	// serve：gs serve --index ./wiki --k v 等价 --default index=./wiki,k=v
+	cfg := parseServeArgs([]string{"--index", "./wiki", "--k=v"}, Config{})
+	if cfg.ChannelDefaults["index"] != "./wiki" || cfg.ChannelDefaults["k"] != "v" {
+		t.Fatalf("bare passthrough lost: %v", cfg.ChannelDefaults)
+	}
+	// mcp 解析器的透传语义由 mcp/args_test.go 覆盖。
+}
+
 func TestPrintOverviewHelpBlocks(t *testing.T) {
 	reg := testReg(t, "a.b")
 	var buf bytes.Buffer

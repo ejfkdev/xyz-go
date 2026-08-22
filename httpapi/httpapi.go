@@ -45,8 +45,8 @@ func HandlerWith(reg *registry.Registry, defaults map[string]string) (http.Handl
 	}
 	mux := http.NewServeMux()
 	for _, e := range reg.All() {
-		if e.HTTP.Skip {
-			continue // 通道层面整体移除
+		if e.HTTP.Skip || e.CLI.Daemon {
+			continue // 通道层面整体移除；Daemon 只属于 CLI
 		}
 		if e.HTTP.Method == "" || e.HTTP.Path == "" {
 			continue // 该命令没有声明 HTTP 路由（CLI/MCP 专用）

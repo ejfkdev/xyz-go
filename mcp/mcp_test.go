@@ -11,6 +11,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	errs "github.com/ejfkdev/xyz-go/errors"
+	"github.com/ejfkdev/xyz-go/httpapi"
 	"github.com/ejfkdev/xyz-go/registry"
 	"github.com/ejfkdev/xyz-go/spec"
 )
@@ -319,5 +320,42 @@ func TestToolOutputSchema(t *testing.T) {
 	}
 	if got == nil || got.OutputSchema == nil {
 		t.Fatalf("math.sum tool should carry output schema, got %+v", got)
+	}
+}
+
+// Daemon 标记：HTTP 路由/openapi 与 MCP 工具全部排除（消费层各自过滤）。
+func TestDaemonExcludesHTTPAndMCP(t *testing.T) {
+	reg := registry.New()
+	type dArgs struct{}
+	if _, err := spec.Define("watch", func(_ context.Context, _ *dArgs) (string, error) {
+		return "rendered?", nil
+	}).CLI(spec.CliHints{Daemon: true}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	h, err := httpapi.Handler(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/openapi.json", nil))
+	if strings.Contains(rec.Body.String(), "watch") {
+		t.Fatalf("daemon leaked into openapi: %s", rec.Body.String())
+	}
+	// MCP 工具表不含该命令（经内存传输的客户端会话枚举）
+	if _, err := spec.Define("ok.list", func(_ context.Context, _ *dArgs) (string, error) {
+		return "ok", nil
+	}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := connectPair(t, reg, Options{})
+	var names []string
+	for tool, err := range cs.Tools(context.Background(), nil) {
+		if err != nil {
+			t.Fatalf("Tools: %v", err)
+		}
+		names = append(names, tool.Name)
+	}
+	if len(names) != 1 || names[0] != "ok.list" {
+		t.Fatalf("daemon leaked into MCP tools: %v", names)
 	}
 }

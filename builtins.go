@@ -196,6 +196,18 @@ func parseServeArgs(args []string, cfg Config) Config {
 			cfg.CORSOrigins = mergeTokens(cfg.CORSOrigins, args[i])
 		case strings.HasPrefix(args[i], "--cors="):
 			cfg.CORSOrigins = mergeTokens(cfg.CORSOrigins, strings.TrimPrefix(args[i], "--cors="))
+		default:
+			// 未识别的 --key v / --key=v 一律透传为通道默认参数
+			//（gs serve --index ./wiki 的自然写法；等价 --default index=./wiki）。
+			if strings.HasPrefix(args[i], "-") {
+				raw := strings.TrimPrefix(args[i], "--")
+				if k, v, ok := strings.Cut(raw, "="); ok {
+					_ = mergeDefaultsFlag(&cfg, strings.TrimSpace(k)+"="+v)
+				} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+					_ = mergeDefaultsFlag(&cfg, raw+"="+args[i+1])
+					i++
+				}
+			}
 		}
 	}
 	return cfg
