@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/ejfkdev/xyz-go/langx"
 	"github.com/ejfkdev/xyz-go/spec"
 )
 
@@ -21,7 +22,7 @@ func (a *App) printHelp(node *cmdNode, bin string) {
 	if desc != "" {
 		fmt.Fprintf(w, "%s\n\n", desc)
 	}
-	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, langx.T("help.usage"))
 	fmt.Fprintf(w, "  %s", bin)
 	if node.leaf {
 		// 自定义 usage 是相对父路径的收尾段（"add <name>"），拼上祖先即可。
@@ -47,15 +48,15 @@ func (a *App) printHelp(node *cmdNode, bin string) {
 		if node.path != "" {
 			fmt.Fprintf(w, " %s", strings.Join(strings.Split(node.path, "."), " "))
 		}
-		fmt.Fprint(w, " [命令]")
+		fmt.Fprint(w, " "+langx.T("help.commands_placeholder"))
 	}
 	fmt.Fprintln(w)
 
 	if len(node.aliases) > 0 {
-		fmt.Fprintf(w, "\nAliases:\n  %s\n", strings.Join(node.aliases, ", "))
+		fmt.Fprintf(w, "\n"+langx.T("help.aliases")+":\n  %s\n", strings.Join(node.aliases, ", "))
 	}
 	if !node.leaf {
-		fmt.Fprintln(w, "\n命令:")
+		fmt.Fprintln(w, "\n"+langx.T("help.commands"))
 		width := 0
 		for _, name := range node.order {
 			if len(name) > width {
@@ -70,7 +71,7 @@ func (a *App) printHelp(node *cmdNode, bin string) {
 			fmt.Fprintf(w, "  %-*s  %s\n", width, name, child.short)
 		}
 	} else if len(node.defs) > 0 {
-		fmt.Fprintln(w, "\nFlags:")
+		fmt.Fprintln(w, "\n"+langx.T("help.flags"))
 		rows := make([][2]string, 0, len(node.defs))
 		for _, d := range node.defs {
 			name := "--" + d.long
@@ -88,11 +89,11 @@ func (a *App) printHelp(node *cmdNode, bin string) {
 		}
 		printRows(w, rows)
 	}
-	fmt.Fprintln(w, "\nGlobal Flags:")
+	fmt.Fprintln(w, "\n"+langx.T("help.global_flags"))
 	printRows(w, [][2]string{
-		{"--json", "输出 JSON 而不是人类可读格式"},
-		{"-v, --version", "输出版本信息"},
-		{"-h, --help", "打印帮助"},
+		{"--json", langx.T("help.json_flag")},
+		{"-v, --version", langx.T("help.version_flag")},
+		{"-h, --help", langx.T("help.help_flag")},
 	})
 	if node.leaf && node.entry != nil {
 		writeHelpBlock(w, node.entry.CLI.After)

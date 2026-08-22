@@ -4,11 +4,13 @@ package xyz
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/ejfkdev/xyz-go/httpapi"
+	"github.com/ejfkdev/xyz-go/langx"
 	"github.com/ejfkdev/xyz-go/logx"
 	"github.com/ejfkdev/xyz-go/registry"
 )
@@ -34,7 +36,7 @@ func runServe(ctx context.Context, reg *registry.Registry, args []string, cfg Co
 		mcpNote = " + /mcp"
 	}
 	if len(cfg.CORSOrigins) > 0 {
-		logx.Debugf("CORS 开启：%v", cfg.CORSOrigins)
+		logx.Debugf("%s", langx.Tf("log.cors_on", fmt.Sprint(cfg.CORSOrigins)))
 	}
 	// 中间件链（由外到内）：CORS 预检（鉴权前，浏览器预检不带凭据）→ Bearer → Gzip → 路由。
 	handler = httpapi.CORS(cfg.CORSOrigins, httpapi.Bearer(cfg.BearerTokens, httpapi.Gzip(handler)))
@@ -47,12 +49,12 @@ func runServe(ctx context.Context, reg *registry.Registry, args []string, cfg Co
 	tlsOn := cfg.CertFile != "" || cfg.KeyFile != ""
 	if tlsOn {
 		if cfg.CertFile == "" || cfg.KeyFile == "" {
-			logx.Errorf("TLS 需要同时给定 --tls-cert 与 --tls-key")
+			logx.Errorf("TLS requires both --tls-cert and --tls-key")
 			return 2
 		}
 		scheme = "https"
 	}
-	logx.Infof("监听 %s://%s（REST + /openapi.json%s）", scheme, cfg.Addr, mcpNote)
+	logx.Infof("%s", langx.Tf("log.serve_listening", scheme, cfg.Addr, mcpNote))
 	errc := make(chan error, 1)
 	go func() {
 		if tlsOn {
@@ -72,7 +74,7 @@ func runServe(ctx context.Context, reg *registry.Registry, args []string, cfg Co
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
-		logx.Infof("已优雅关停（ctx 取消）")
+		logx.Infof("%s", langx.T("log.graceful"))
 		return 0
 	}
 }

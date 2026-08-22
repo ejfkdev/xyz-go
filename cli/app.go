@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	errs "github.com/ejfkdev/xyz-go/errors"
+	"github.com/ejfkdev/xyz-go/langx"
 	"github.com/ejfkdev/xyz-go/registry"
 	"github.com/ejfkdev/xyz-go/spec"
 )
@@ -201,8 +202,9 @@ func (a *App) execute(ctx context.Context, node *cmdNode, args []string, jsonOut
 		return err
 	}
 	if len(pos) < node.minPos || len(pos) > node.maxPos {
-		return fmt.Errorf("%s: 位置参数数量不符（需要 %d 到 %d 个，收到 %d 个）",
-			strings.Join(strings.Split(node.path, "."), " "), node.minPos, node.maxPos, len(pos))
+		return fmt.Errorf("%s", langx.Tf("cli.err_positional_count",
+			strings.Join(strings.Split(node.path, "."), " "),
+			fmt.Sprint(node.minPos), fmt.Sprint(node.maxPos), fmt.Sprint(len(pos))))
 	}
 	m := map[string]any{}
 	for i := range node.defs {

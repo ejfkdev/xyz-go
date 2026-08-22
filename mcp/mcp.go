@@ -25,6 +25,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ejfkdev/xyz-go/httpapi"
+	"github.com/ejfkdev/xyz-go/langx"
 	"github.com/ejfkdev/xyz-go/logx"
 	"github.com/ejfkdev/xyz-go/registry"
 )
@@ -160,11 +161,11 @@ func runWithOptions(ctx context.Context, reg *registry.Registry, args []string, 
 	opts.mergeDefaults(base)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mcp:", err)
-		fmt.Fprintln(os.Stderr, "用法: mcp stdio|sse|http [--addr :8080] [--versions 2025-06-18,2026-07-28] [--name N] [--server-version V]")
+		fmt.Fprintln(os.Stderr, langx.T("mcp.usage"))
 		return 2
 	}
 	if transport != "stdio" && transport != "sse" && transport != "http" {
-		fmt.Fprintf(os.Stderr, "mcp: unknown transport %q (want stdio|sse|http)\n", transport)
+		fmt.Fprintf(os.Stderr, "mcp: %s\n", langx.Tf("mcp.err_unknown_transport", transport))
 		return 2
 	}
 	if err := validateTransportVersions(transport, opts); err != nil {
@@ -180,7 +181,7 @@ func runWithOptions(ctx context.Context, reg *registry.Registry, args []string, 
 	switch transport {
 	case "stdio":
 		if len(opts.BearerTokens) > 0 {
-			logx.Warnf("Bearer 凭据校验只作用于 http/sse 传输，stdio 为本地进程不受保护")
+			logx.Warnf("%s", langx.T("warn.bearer_stdio"))
 		}
 		t := versionFilterTransport{Transport: &sdkmcp.StdioTransport{}, allowed: allowed}
 		if err := server.Run(ctx, t); err != nil {

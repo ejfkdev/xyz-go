@@ -3,6 +3,7 @@ package mcp
 import (
 	"errors"
 	"fmt"
+	"github.com/ejfkdev/xyz-go/langx"
 	"strings"
 	"time"
 )
@@ -71,10 +72,10 @@ func parseArgs(args []string) (string, Options, error) {
 		}
 	}
 	if transport == "" {
-		return "", opts, errors.New("missing transport")
+		return "", opts, errors.New(langx.T("mcp.err_missing_transport"))
 	}
 	if positional > 1 {
-		return "", opts, fmt.Errorf("unexpected argument %q", args[len(args)-1])
+		return "", opts, fmt.Errorf("%s", langx.Tf("mcp.err_usage_extra_arg", args[len(args)-1]))
 	}
 	return transport, opts, nil
 }

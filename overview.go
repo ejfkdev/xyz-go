@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/ejfkdev/xyz-go/langx"
 	"github.com/ejfkdev/xyz-go/registry"
 )
 
@@ -22,34 +23,34 @@ func writeBlock(w io.Writer, s string) {
 // 分别插在总览开头与结尾（after 即使命令表被隐藏也打印）。
 func printOverview(w io.Writer, reg *registry.Registry, serve, mcpWord string, caps Capabilities, helpBefore, helpAfter string) {
 	writeBlock(w, helpBefore)
-	fmt.Fprintln(w, "用法（模式由程序自动判断，定义只有一份）:")
-	cliLine := "  <app> [命令] [参数]           CLI 模式（子命令 + flag/位置参数；-h 帮助，-v 版本）"
+	fmt.Fprintln(w, langx.T("overview.usage_line"))
+	cliLine := langx.T("overview.cli_mode")
 	if caps.NoCLI {
-		cliLine += "（已禁用）"
+		cliLine += langx.T("overview.disabled")
 	} else if !cliFrontend {
-		cliLine += "（本二进制未编译）"
+		cliLine += langx.T("overview.not_compiled")
 	}
 	fmt.Fprintln(w, cliLine)
-	serveLine := fmt.Sprintf("  <app> %s [--addr :8080]      HTTP 模式（REST 路由 + /openapi.json + 可挂 /mcp）", serve)
+	serveLine := langx.Tf("overview.serve_mode", serve)
 	switch {
 	case caps.NoHTTP:
-		serveLine += "（已禁用）"
+		serveLine += langx.T("overview.disabled")
 	case !httpFrontend:
-		serveLine += "（本二进制未编译）"
+		serveLine += langx.T("overview.not_compiled")
 	}
 	fmt.Fprintln(w, serveLine)
-	mcpLine := fmt.Sprintf("  <app> %s stdio|sse|http      MCP 模式（官方 SDK；--versions 限定协议版本）", mcpWord)
+	mcpLine := langx.Tf("overview.mcp_mode", mcpWord)
 	if caps.NoMCP {
-		mcpLine += "（已禁用）"
+		mcpLine += langx.T("overview.disabled")
 	}
 	fmt.Fprintln(w, mcpLine)
-	fmt.Fprintln(w, "内置参数（代码中的 xyz.Config 或命令行）：--xyz.addr=:8080（默认监听地址） --xyz.bearer=tok1,tok2（serve 与 MCP http/sse 的 Bearer 凭据）")
+	fmt.Fprintln(w, langx.T("overview.builtins"))
 	// CLI 被禁用时不生成子命令，总览也不再列出命令表（自定义 after 块照打）。
 	if len(reg.Names()) == 0 || caps.NoCLI {
 		writeBlock(w, helpAfter)
 		return
 	}
-	fmt.Fprintln(w, "\n命令:")
+	fmt.Fprintln(w, "\n"+langx.T("overview.commands"))
 	width := 0
 	for _, n := range reg.Names() {
 		if len(n) > width {

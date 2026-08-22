@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ejfkdev/xyz-go/langx"
+
 	"github.com/ejfkdev/xyz-go/logx"
 )
 
@@ -90,11 +92,27 @@ func stripXYZFlags(args []string, cfg *Config) ([]string, error) {
 			}
 		case strings.HasPrefix(a, "--xyz.tls-key="):
 			cfg.KeyFile = strings.TrimPrefix(a, "--xyz.tls-key=")
+		case a == "--xyz.lang":
+			if v, err := value(); err != nil {
+				return nil, err
+			} else if _, ok := langx.Parse(v); !ok {
+				return nil, fmt.Errorf("invalid --xyz.lang %q (want en|zh-CN)", v)
+			} else {
+				cfg.Lang = v
+			}
 		case a == "--xyz.cors":
 			if v, err := value(); err != nil {
 				return nil, err
 			} else {
 				cfg.CORSOrigins = mergeTokens(cfg.CORSOrigins, v)
+			}
+		case strings.HasPrefix(a, "--xyz.lang="):
+			{
+				v := strings.TrimPrefix(a, "--xyz.lang=")
+				if _, ok := langx.Parse(v); !ok {
+					return nil, fmt.Errorf("invalid --xyz.lang %q (want en|zh-CN)", v)
+				}
+				cfg.Lang = v
 			}
 		case strings.HasPrefix(a, "--xyz.cors="):
 			cfg.CORSOrigins = mergeTokens(cfg.CORSOrigins, strings.TrimPrefix(a, "--xyz.cors="))

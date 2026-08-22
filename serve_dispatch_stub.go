@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ejfkdev/xyz-go/langx"
 	"github.com/ejfkdev/xyz-go/registry"
 )
 
@@ -15,6 +16,6 @@ const httpFrontend = false
 
 // runServe 是 -tags nohttp 构建下的兜底：本二进制没有编译进 HTTP 前端。
 func runServe(_ context.Context, _ *registry.Registry, _ []string, _ Config) int {
-	fmt.Fprintln(os.Stderr, "xyz: 本二进制未编译 HTTP 前端（构建时使用了 -tags nohttp）")
+	fmt.Fprintln(os.Stderr, "xyz: "+langx.Tf("stub.not_compiled", "HTTP")+" (built with -tags nohttp)")
 	return 1
 }

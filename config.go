@@ -54,6 +54,13 @@ type Config struct {
 	// OPTIONS 预检在鉴权之前应答。命令行：--xyz.cors=origin1,origin2。
 	CORSOrigins []string
 
+	// Lang 覆盖界面语言：""=自动（--xyz.lang flag > 本字段 > LANG/LC_ALL
+	// 环境检测 > 英文默认）。取值 "en" | "zh-CN"。
+	Lang string
+	// Translations 是用户的多语言内容覆盖表：语言 → (消息键 → 文本)。
+	// 键名见 langx 目录（xyz-spec §15.8 的规范键表）；只覆盖内置键亦可。
+	Translations map[string]map[string]string
+
 	// HelpBefore/HelpAfter 是 help 总览的自定义文本块：前者原样插在总览
 	// 开头（程序名/描述/版本/仓库地址等自己拼），后者插在结尾（命令表之后，
 	// 即使命令表被隐藏也打印）。空 = 不插入。

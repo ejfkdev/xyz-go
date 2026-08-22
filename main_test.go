@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ejfkdev/xyz-go/langx"
+
 	"github.com/ejfkdev/xyz-go/logx"
 	"github.com/ejfkdev/xyz-go/registry"
 	"github.com/ejfkdev/xyz-go/spec"
@@ -198,6 +200,31 @@ func TestStripXYZFlagsStopsAtDoubleDash(t *testing.T) {
 	}
 }
 
+func TestOverviewLanguage(t *testing.T) {
+	reg := testReg(t, "a.b")
+	langx.Set(langx.En, nil)
+	var en bytes.Buffer
+	printOverview(&en, reg, "serve", "mcp", Capabilities{}, "", "")
+	if !strings.Contains(en.String(), "Usage (the mode is detected") {
+		t.Fatalf("en overview missing: %q", en.String())
+	}
+	langx.Set(langx.ZhCn, nil)
+	var zh bytes.Buffer
+	printOverview(&zh, reg, "serve", "mcp", Capabilities{}, "", "")
+	if !strings.Contains(zh.String(), "用法（模式由程序自动判断") {
+		t.Fatalf("zh overview missing: %q", zh.String())
+	}
+	langx.Set(langx.En, nil)
+	// 覆盖表生效
+	langx.Set(langx.En, map[string]string{"overview.commands": "Commands!:"})
+	var ov bytes.Buffer
+	printOverview(&ov, reg, "serve", "mcp", Capabilities{}, "", "")
+	if !strings.Contains(ov.String(), "Commands!:") {
+		t.Fatalf("overrides not applied: %q", ov.String())
+	}
+	langx.Set(langx.En, nil)
+}
+
 func TestPrintOverviewHelpBlocks(t *testing.T) {
 	reg := testReg(t, "a.b")
 	var buf bytes.Buffer
@@ -228,7 +255,7 @@ func TestPrintOverviewHelpBlocks(t *testing.T) {
 	// 多行保留、结尾换行归一（多个 \n 折叠为一个）
 	var buf3 bytes.Buffer
 	printOverview(&buf3, reg, "serve", "mcp", Capabilities{}, "a\nb\n\n\n", "")
-	if !strings.HasPrefix(buf3.String(), "a\nb\n用法") {
+	if !strings.HasPrefix(buf3.String(), "a\nb\n"+langx.T("overview.usage_line")) {
 		t.Fatalf("block newline normalization wrong: %q", buf3.String())
 	}
 }

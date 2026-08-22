@@ -51,6 +51,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/ejfkdev/xyz-go/langx"
 	"github.com/ejfkdev/xyz-go/logx"
 	"github.com/ejfkdev/xyz-go/registry"
 )
@@ -120,6 +121,24 @@ func RunConfig(reg *registry.Registry, args []string, cfg Config) int {
 	if cfg.LogLevel != logx.LevelUnset {
 		logx.SetLevel(cfg.LogLevel)
 	}
+	// 界面语言：--xyz.lang（已写回 cfg）> Config.Lang > 环境检测 > 英文。
+	lang := langx.En
+	if cfg.Lang != "" {
+		if l, ok := langx.Parse(cfg.Lang); !ok {
+			fmt.Fprintf(os.Stderr, "xyz: invalid --xyz.lang %q (want en|zh-CN)\n", cfg.Lang)
+			return 2
+		} else {
+			lang = l
+		}
+	} else {
+		lang = langx.Detect()
+	}
+	langKey := langx.En.String()
+	switch lang {
+	case langx.ZhCn:
+		langKey = "zh-CN"
+	}
+	langx.Set(lang, cfg.Translations[langKey])
 	if len(args) == 0 || args[0] == helpWord || args[0] == "--help" || args[0] == "-h" {
 		printOverview(os.Stdout, reg, serve, mcpWord, cfg.Capabilities, cfg.HelpBefore, cfg.HelpAfter)
 		return 0
@@ -132,19 +151,19 @@ func RunConfig(reg *registry.Registry, args []string, cfg Config) int {
 	switch args[0] {
 	case serve:
 		if cfg.Capabilities.NoHTTP {
-			logx.Warnf("%s 模式已被禁用（Config.Capabilities.NoHTTP）", serve)
+			logx.Warnf("%s", langx.Tf("warn.mode_disabled", serve, "HTTP"))
 			return 1
 		}
 		return runServe(ctx, reg, args[1:], cfg)
 	case mcpWord:
 		if cfg.Capabilities.NoMCP {
-			logx.Warnf("%s 模式已被禁用（Config.Capabilities.NoMCP）", mcpWord)
+			logx.Warnf("%s", langx.Tf("warn.mode_disabled", mcpWord, "MCP"))
 			return 1
 		}
 		return runMCP(ctx, reg, args[1:], cfg)
 	default:
 		if cfg.Capabilities.NoCLI {
-			logx.Warnf("子命令不可用：CLI 已禁用（Config.Capabilities.NoCLI；%s/%s/help/-v 仍可用）", mcpWord, serve)
+			logx.Warnf("%s", langx.Tf("warn.no_cli", mcpWord, serve))
 			return 1
 		}
 		return runCLI(ctx, reg, args)
