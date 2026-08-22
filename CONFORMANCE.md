@@ -1,6 +1,6 @@
 # Conformance — xyz-go
 
-Specification target: [xyz-spec](https://github.com/ejfkdev/xyz-spec) **v0.1.1**.
+Specification target: [xyz-spec](https://github.com/ejfkdev/xyz-spec) **v0.1.2**.
 
 Status: **conformant (baseline anchor)** — xyz-go is one of the two reference
 implementations the specification was written from; where ambiguous, Go
@@ -31,7 +31,9 @@ The fixture program runs with `go run ./cmd/example`; all commands of the
 §3.2 matrix behave as specified, including `search query --query golang`
 (CLI default k=25), the `--q`-is-an-unknown-flag behaviour now pinned by
 the golden scenarios, and the default-subcommand forwarding of §10.1
-(`TestCLIDefaultSubcommandForwardsAllArgs` in cli/cli_test.go).
+(`TestCLIDefaultSubcommandForwardsAllArgs` in cli/cli_test.go), plus the
+custom help blocks of §10.4/§13.2 (`TestPrintOverviewHelpBlocks` in
+main_test.go, `TestCLIHelpBlocks` in cli/cli_test.go).
 
 ## Deviations
 
