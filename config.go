@@ -53,4 +53,10 @@ type Config struct {
 	// CORSOrigins 非空则开启 CORS：逐个 Origin 放行（"*" 表示任意来源），
 	// OPTIONS 预检在鉴权之前应答。命令行：--xyz.cors=origin1,origin2。
 	CORSOrigins []string
+
+	// HelpBefore/HelpAfter 是 help 总览的自定义文本块：前者原样插在总览
+	// 开头（程序名/描述/版本/仓库地址等自己拼），后者插在结尾（命令表之后，
+	// 即使命令表被隐藏也打印）。空 = 不插入。
+	HelpBefore string
+	HelpAfter  string
 }

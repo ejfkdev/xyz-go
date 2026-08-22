@@ -121,7 +121,7 @@ func RunConfig(reg *registry.Registry, args []string, cfg Config) int {
 		logx.SetLevel(cfg.LogLevel)
 	}
 	if len(args) == 0 || args[0] == helpWord || args[0] == "--help" || args[0] == "-h" {
-		printOverview(os.Stdout, reg, serve, mcpWord, cfg.Capabilities)
+		printOverview(os.Stdout, reg, serve, mcpWord, cfg.Capabilities, cfg.HelpBefore, cfg.HelpAfter)
 		return 0
 	}
 	// 优雅关停：信号取消的 ctx 贯穿 CLI/HTTP/MCP，长任务可在退出前排空。

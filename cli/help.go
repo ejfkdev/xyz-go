@@ -10,6 +10,10 @@ import (
 
 func (a *App) printHelp(node *cmdNode, bin string) {
 	w := a.out
+	// 自定义块：只在叶子命令上生效（中间节点没有 CliHints）。
+	if node.leaf && node.entry != nil {
+		writeHelpBlock(w, node.entry.CLI.Before)
+	}
 	desc := node.long
 	if desc == "" {
 		desc = node.short
@@ -90,6 +94,18 @@ func (a *App) printHelp(node *cmdNode, bin string) {
 		{"-v, --version", "输出版本信息"},
 		{"-h, --help", "打印帮助"},
 	})
+	if node.leaf && node.entry != nil {
+		writeHelpBlock(w, node.entry.CLI.After)
+	}
+}
+
+// writeHelpBlock 原样输出 -h 的自定义文本块：末尾换行归一；空块不输出。
+// （与 overview 的 writeBlock 语义一致——帮助块是用户自己的排版。）
+func writeHelpBlock(w io.Writer, s string) {
+	if s == "" {
+		return
+	}
+	fmt.Fprintln(w, strings.TrimRight(s, "\n"))
 }
 
 func printRows(w io.Writer, rows [][2]string) {

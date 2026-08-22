@@ -480,3 +480,49 @@ func TestCLIDuplicateDefaultRejected(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestCLIHelpBlocks(t *testing.T) {
+	reg := registry.New()
+	_, err := spec.Define("extract", addHandler).
+		Summary("提取").
+		CLI(spec.CliHints{
+			Before: "extract — 解包镜像\n用法示例见下方",
+			After:  "更多: https://example.com/udf#extract",
+		}).
+		Register(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _, code := runApp(t, app, "extract", "-h")
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	if !strings.HasPrefix(out, "extract — 解包镜像\n") {
+		t.Fatalf("before block not at top of -h: %q", out)
+	}
+	if !strings.HasSuffix(out, "更多: https://example.com/udf#extract\n") {
+		t.Fatalf("after block not at end of -h: %q", out)
+	}
+
+	// 中间节点没有 CliHints：块只在叶子帮助上出现。
+	reg2 := registry.New()
+	if _, err := spec.Define("user.add", addHandler).CLI(spec.CliHints{Before: "LEAFBLK"}).Register(reg2); err != nil {
+		t.Fatal(err)
+	}
+	app2, err := New(reg2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out2, _, _ := runApp(t, app2, "user", "-h")
+	if strings.Contains(out2, "LEAFBLK") {
+		t.Fatalf("intermediate node must not print leaf blocks: %q", out2)
+	}
+	out3, _, code3 := runApp(t, app2, "user", "add", "-h")
+	if code3 != 0 || !strings.HasPrefix(out3, "LEAFBLK\n") {
+		t.Fatalf("leaf -h missing before block: code=%d out=%q", code3, out3)
+	}
+}

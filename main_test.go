@@ -1,7 +1,9 @@
 package xyz
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -193,5 +195,40 @@ func TestStripXYZFlagsStopsAtDoubleDash(t *testing.T) {
 	}
 	if len(rest) != 3 || rest[2] != "--xyz.bearer=hacked" {
 		t.Fatalf("rest = %v, want tokens preserved verbatim", rest)
+	}
+}
+
+func TestPrintOverviewHelpBlocks(t *testing.T) {
+	reg := testReg(t, "a.b")
+	var buf bytes.Buffer
+	before := "myapp v1.2.3 — do the thing\nhttps://github.com/me/myapp"
+	after := "Need help? https://github.com/me/myapp#faq"
+	printOverview(&buf, reg, "serve", "mcp", Capabilities{}, before, after)
+	out := buf.String()
+	if !strings.HasPrefix(out, before+"\n") {
+		t.Fatalf("before block not at top: %q", out)
+	}
+	if !strings.HasSuffix(out, after+"\n") {
+		t.Fatalf("after block not at end: %q", out)
+	}
+	// 空块零变化：与不传块逐字节一致
+	var base, withEmpty bytes.Buffer
+	printOverview(&base, reg, "serve", "mcp", Capabilities{}, "", "")
+	printOverview(&withEmpty, reg, "serve", "mcp", Capabilities{}, "", "")
+	if base.String() != withEmpty.String() {
+		t.Fatal("empty blocks must be a no-op")
+	}
+	// 空注册表时 after 仍打印（早退路径）
+	empty := registry.New()
+	var buf2 bytes.Buffer
+	printOverview(&buf2, empty, "serve", "mcp", Capabilities{}, "", "tail")
+	if !strings.HasSuffix(buf2.String(), "tail\n") {
+		t.Fatalf("after block lost on empty registry: %q", buf2.String())
+	}
+	// 多行保留、结尾换行归一（多个 \n 折叠为一个）
+	var buf3 bytes.Buffer
+	printOverview(&buf3, reg, "serve", "mcp", Capabilities{}, "a\nb\n\n\n", "")
+	if !strings.HasPrefix(buf3.String(), "a\nb\n用法") {
+		t.Fatalf("block newline normalization wrong: %q", buf3.String())
 	}
 }

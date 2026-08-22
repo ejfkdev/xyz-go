@@ -3,13 +3,25 @@ package xyz
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/ejfkdev/xyz-go/registry"
 )
 
+// writeBlock 原样输出自定义帮助块：去掉末尾多余换行后整段 + 单个换行，
+// 与后续内容自然分行；空块不输出。
+func writeBlock(w io.Writer, s string) {
+	if s == "" {
+		return
+	}
+	fmt.Fprintln(w, strings.TrimRight(s, "\n"))
+}
+
 // printOverview 输出无参数/help 模式下的总览：三种形态 + 内置参数提示 + 命令表
-// （CLI 被禁用时隐藏命令表）。
-func printOverview(w io.Writer, reg *registry.Registry, serve, mcpWord string, caps Capabilities) {
+// （CLI 被禁用时隐藏命令表）。helpBefore/helpAfter 是 Config 的自定义文本块，
+// 分别插在总览开头与结尾（after 即使命令表被隐藏也打印）。
+func printOverview(w io.Writer, reg *registry.Registry, serve, mcpWord string, caps Capabilities, helpBefore, helpAfter string) {
+	writeBlock(w, helpBefore)
 	fmt.Fprintln(w, "用法（模式由程序自动判断，定义只有一份）:")
 	cliLine := "  <app> [命令] [参数]           CLI 模式（子命令 + flag/位置参数；-h 帮助，-v 版本）"
 	if caps.NoCLI {
@@ -32,8 +44,9 @@ func printOverview(w io.Writer, reg *registry.Registry, serve, mcpWord string, c
 	}
 	fmt.Fprintln(w, mcpLine)
 	fmt.Fprintln(w, "内置参数（代码中的 xyz.Config 或命令行）：--xyz.addr=:8080（默认监听地址） --xyz.bearer=tok1,tok2（serve 与 MCP http/sse 的 Bearer 凭据）")
-	// CLI 被禁用时不生成子命令，总览也不再列出命令表。
+	// CLI 被禁用时不生成子命令，总览也不再列出命令表（自定义 after 块照打）。
 	if len(reg.Names()) == 0 || caps.NoCLI {
+		writeBlock(w, helpAfter)
 		return
 	}
 	fmt.Fprintln(w, "\n命令:")
@@ -47,4 +60,5 @@ func printOverview(w io.Writer, reg *registry.Registry, serve, mcpWord string, c
 		e, _ := reg.Get(n)
 		fmt.Fprintf(w, "  %-*s  %s\n", width, n, e.Summary)
 	}
+	writeBlock(w, helpAfter)
 }

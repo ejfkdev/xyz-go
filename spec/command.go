@@ -39,6 +39,11 @@ type CliHints struct {
 	// flag), the whole argument list is forwarded to it (udf image.tar with
 	// default extract == udf extract image.tar).
 	Default bool
+	// Before/After 是 -h 帮助的自定义文本块：分别插在帮助最前（description
+	// 之前）与最后（Global Flags 之后）。原样输出（多行、缩进自控；结尾换行
+	// 归一）。空 = 不插入。
+	Before string
+	After  string
 	Fields  map[string]CliFieldHint // per-field CLI configuration
 }
 
