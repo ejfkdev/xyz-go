@@ -28,8 +28,8 @@ type cmdNode struct {
 	minPos   int
 	maxPos   int
 	children map[string]*cmdNode
-	order    []string     // children 排序后的名字
-	dflt     *cmdNode     // 默认子命令（未匹配命令段时整串参数转发给它）
+	order    []string // children 排序后的名字
+	dflt     *cmdNode // 默认子命令（未匹配命令段时整串参数转发给它）
 }
 
 // App is the CLI frontend for one registry.

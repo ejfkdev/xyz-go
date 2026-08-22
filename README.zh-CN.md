@@ -196,6 +196,25 @@ xyz.MainConfig(xyz.Config{BearerTokens: []string{"s3cret"}, Addr: ":8080"})
 
 **待审议清单**（保持内核最小、按需补丁）：日志输出轮转（目前 stderr 直出、无文件）、基础限流。需要哪项直接说，逐项加即可。
 
+## 界面语言
+
+所有内置界面文本（总览、帮助标签、用法错误、诊断）的语言按此顺序选择：
+`--xyz.lang=en|zh-CN` flag > `Config.Lang` > `LANG`/`LC_ALL` 环境检测
+（小写 `zh` 前缀即中文）> **英文（默认）**。两种语言随库携带。更多多语言
+内容用 `Config.Translations` 配置（语言 →（消息键 → 文本））；键名与英文
+措辞即 xyz-spec §15.5 的规范目录：
+
+```go
+xyz.MainConfig(xyz.Config{
+    Lang: "zh-CN", // 或 LANG=zh_CN ./app；或 --xyz.lang=zh-CN
+    Translations: map[string]map[string]string{
+        "en": {"help.help_flag": "show this help"},
+    },
+})
+```
+
+错误分类消息（§8）保持英文；用户内容（summary、description、帮助块）永不翻译。
+
 ## 自定义帮助块
 
 纯文本自由块，多行原样输出（末尾多余换行归一为一个）；空块零影响：

@@ -31,9 +31,9 @@ type Command[T, R any] struct {
 // so you can set the shorthand in the tag and only override the default in
 // the builder.
 type CliHints struct {
-	Usage   string                  // one-line invocation, e.g. "add <name>"
-	Aliases []string                // alternative subcommand spellings
-	Hidden  bool                    // omit from help listings
+	Usage   string   // one-line invocation, e.g. "add <name>"
+	Aliases []string // alternative subcommand spellings
+	Hidden  bool     // omit from help listings
 	// Default makes this command the default child of its parent node: when
 	// the first argument is not a registered command segment (and is not a
 	// flag), the whole argument list is forwarded to it (udf image.tar with
@@ -44,7 +44,7 @@ type CliHints struct {
 	// 归一）。空 = 不插入。
 	Before string
 	After  string
-	Fields  map[string]CliFieldHint // per-field CLI configuration
+	Fields map[string]CliFieldHint // per-field CLI configuration
 }
 
 // CliFieldHint is Define-time per-field configuration for the CLI frontend.

@@ -180,6 +180,28 @@ example mcp http --addr :9000 --bearer a,b           # standalone MCP, same sche
 example mcp http --xyz.bearer a,b                    # prefixed form is equivalent
 ```
 
+## Interface language
+
+The interface language of all built-in text (overview, help labels, usage
+errors, diagnostics) is picked in this order: `--xyz.lang=en|zh-CN` flag >
+`Config.Lang` > `LANG`/`LC_ALL` environment (a lowercase `zh` prefix picks
+Chinese) > **English (default)**. Both languages ship in the library.
+Configure more multilingual content with `Config.Translations`
+(language → (message key → text)); key names and English wording are the
+xyz-spec §15.5 canonical catalog:
+
+```go
+xyz.MainConfig(xyz.Config{
+    Lang: "zh-CN", // or: LANG=zh_CN ./app; or: --xyz.lang=zh-CN
+    Translations: map[string]map[string]string{
+        "en": {"help.help_flag": "show this help"},
+    },
+})
+```
+
+Error taxonomy messages (§8) stay English; user content (summaries,
+descriptions, help blocks) is never translated.
+
 ## Custom help blocks
 
 Free text blocks, raw multi-line, printed verbatim (trailing newlines
