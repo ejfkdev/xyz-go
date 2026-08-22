@@ -215,6 +215,29 @@ xyz.MainConfig(xyz.Config{
 
 错误分类消息（§8）保持英文；用户内容（summary、description、帮助块）永不翻译。
 
+## 命令通道、长驻命令与可组合派发
+
+- **单命令通道开关**：`CliHints{Skip}`、`HTTPHints{Skip}`、`MCPHints{Skip}`
+  只把该命令从被标记的通道移除（不建子命令节点 / 不路由 / 不成为工具）。
+  CLI 的 `Skip` 同时移除别名与 completion 词——比 `Hidden` 更强。
+- **长驻命令**：`CliHints{Daemon: true}` 声明长驻生命周期——handler 阻塞到
+  `ctx.Done()`，CLI 优雅退出 0，返回值不渲染，命令隐含 CLI-only。
+
+  ```go
+  spec.Define("watch", watch).CLI(spec.CliHints{Daemon: true})
+  func watch(ctx context.Context, in *args) (*resp, error) { <-ctx.Done(); return nil, nil }
+  ```
+
+- **通道默认参数**：`--default k=v`（可重复；逗号分隔对）——serve/mcp 启动
+  时注入，只补缺席的请求/工具键；优先级：显式 > env > 接口默认 > **通道
+  默认** > 全局默认 > 零值。serve/mcp 里任何未识别的 `--key value` 都是它的
+  简写：`gs serve --index ./wiki` 等价 `--default index=./wiki`。代码侧：
+  `Config.ChannelDefaults`。
+
+- **可组合派发**：`code, handled := xyz.TryRun(reg, args)`——完整派发管线，
+  但 CLI 顶层词未命中时静默返回 `(0, false)`，宿主接着路由自己的命令；
+  `TryRunConfig` 可带自定义 `Config`。
+
 ## 自定义帮助块
 
 纯文本自由块，多行原样输出（末尾多余换行归一为一个）；空块零影响：

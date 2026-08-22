@@ -1,6 +1,6 @@
 # Conformance — xyz-go
 
-Specification target: [xyz-spec](https://github.com/ejfkdev/xyz-spec) **v0.3.0**.
+Specification target: [xyz-spec](https://github.com/ejfkdev/xyz-spec) **v0.3.1**.
 
 Status: **conformant (baseline anchor)** — xyz-go is one of the two reference
 implementations the specification was written from; where ambiguous, Go
@@ -35,7 +35,11 @@ the golden scenarios, and the default-subcommand forwarding of §10.1
 custom help blocks of §10.4/§13.2 (`TestPrintOverviewHelpBlocks` in
 main_test.go, `TestCLIHelpBlocks` in cli/cli_test.go) and the language
 catalog of §15.5 (`langx/langx_test.go`, `TestOverviewLanguage` in
-main_test.go), plus §4.5a/§13.9/§6.1/§10.4
+main_test.go), plus §4.5a/§13.9/§6.1/§10.4 (channel
+switches, TryRun, defaults) and the v0.3.1 rulings (`TestCLIDaemonCommandRunsUntilCancel`,
+`TestDaemonMarkerExcludesChannelsCompact` in cli/cli_test.go,
+`TestDaemonExcludesHTTPAndMCP` in mcp/mcp_test.go,
+`TestBareFlagPassthroughDefaults` in main_test.go and mcp/args_test.go)
 (`TestCLIChannelSkipAndTypes`, `TestCLIDaemonCommandRunsUntilCancel` in
 cli/cli_test.go; `TestTryRunComposability`, `TestChannelDefaultsFlag` in
 main_test.go).

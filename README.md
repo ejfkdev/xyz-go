@@ -202,6 +202,34 @@ xyz.MainConfig(xyz.Config{
 Error taxonomy messages (§8) stay English; user content (summaries,
 descriptions, help blocks) is never translated.
 
+## Command channels, daemons & composable dispatch
+
+- **Per-command channel switches**: `CliHints{Skip}`, `HTTPHints{Skip}`,
+  `MCPHints{Skip}` remove the command from the marked channel only
+  (no subcommand node / no route / no tool). CLI `Skip` also drops aliases
+  and completion words — stronger than `Hidden`.
+- **Daemon commands**: `CliHints{Daemon: true}` declares a long-running
+  lifecycle — the handler blocks until `ctx.Done()`, the CLI exits 0
+  gracefully, the return value is not rendered and the command is
+  implicitly CLI-only.
+
+  ```go
+  spec.Define("watch", watch).CLI(spec.CliHints{Daemon: true})
+  func watch(ctx context.Context, in *args) (*resp, error) { <-ctx.Done(); return nil, nil }
+  ```
+
+- **Channel defaults**: `--default k=v` (repeatable; comma-pairs) —
+  injected at serve/mcp startup, fills absent request/tool keys only;
+  precedence: explicit > env > interface default > **channel default** >
+  global default > zero. Any unrecognised `--key value` in serve/mcp is a
+  shorthand for it: `gs serve --index ./wiki` equals
+  `--default index=./wiki`. Code side: `Config.ChannelDefaults`.
+
+- **Composable dispatch**: `code, handled := xyz.TryRun(reg, args)` —
+  full dispatch pipeline, but an unknown CLI top word returns `(0, false)`
+  silently so the host can route its own commands; `TryRunConfig` takes a
+  custom `Config`.
+
 ## Custom help blocks
 
 Free text blocks, raw multi-line, printed verbatim (trailing newlines
