@@ -3,7 +3,9 @@ package cli
 import (
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
+	"time"
 
 	"github.com/ejfkdev/xyz-go/langx"
 	"github.com/ejfkdev/xyz-go/spec"
@@ -78,13 +80,7 @@ func (a *App) printHelp(node *cmdNode, bin string) {
 			if d.short != "" {
 				name = "-" + d.short + ", " + name
 			}
-			typ := "string"
-			switch d.kind {
-			case fBool:
-				typ = "bool"
-			case fSlice:
-				typ = "strings"
-			}
+			typ := flagTypeName(d)
 			rows = append(rows, [2]string{name + " " + typ, flagDescription(d.field)})
 		}
 		printRows(w, rows)
@@ -107,6 +103,30 @@ func writeHelpBlock(w io.Writer, s string) {
 		return
 	}
 	fmt.Fprintln(w, strings.TrimRight(s, "\n"))
+}
+
+// flagTypeName 按字段类型保真渲染帮助里的 flag 类型；切片同时标注可重复。
+func flagTypeName(d flagDef) string {
+	switch d.kind {
+	case fBool:
+		return "bool"
+	case fSlice:
+		return "strings (repeatable)"
+	}
+	switch d.field.Kind {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "integer"
+	case reflect.Float32, reflect.Float64:
+		return "number"
+	}
+	if d.field.Type == reflect.TypeOf(time.Duration(0)) {
+		return "duration"
+	}
+	if d.field.Type == reflect.TypeOf(time.Time{}) {
+		return "time"
+	}
+	return "string"
 }
 
 func printRows(w io.Writer, rows [][2]string) {

@@ -29,9 +29,28 @@ func parseArgs(args []string) (string, Options, error) {
 		case a == "--versions" && i+1 < len(args):
 			i++
 			opts.Versions = splitVersions(args[i])
+		case a == "--default" && i+1 < len(args):
+			i++
+			if opts.Defaults == nil {
+				opts.Defaults = map[string]string{}
+			}
+			for _, pair := range strings.Split(args[i], ",") {
+				if k, v, ok := strings.Cut(strings.TrimSpace(pair), "="); ok && strings.TrimSpace(k) != "" {
+					opts.Defaults[strings.TrimSpace(k)] = v
+				}
+			}
 		case a == "--bearer" && i+1 < len(args):
 			i++
 			opts.BearerTokens = mergeTokenList(opts.BearerTokens, args[i])
+		case strings.HasPrefix(a, "--default="):
+			if opts.Defaults == nil {
+				opts.Defaults = map[string]string{}
+			}
+			for _, pair := range strings.Split(strings.TrimPrefix(a, "--default="), ",") {
+				if k, v, ok := strings.Cut(strings.TrimSpace(pair), "="); ok && strings.TrimSpace(k) != "" {
+					opts.Defaults[strings.TrimSpace(k)] = v
+				}
+			}
 		case strings.HasPrefix(a, "--bearer="):
 			opts.BearerTokens = mergeTokenList(opts.BearerTokens, strings.TrimPrefix(a, "--bearer="))
 		case a == "--session-timeout" && i+1 < len(args):
@@ -117,6 +136,9 @@ func (o *Options) mergeDefaults(base Options) {
 	}
 	if len(o.CORSOrigins) == 0 {
 		o.CORSOrigins = base.CORSOrigins
+	}
+	if len(o.Defaults) == 0 {
+		o.Defaults = base.Defaults
 	}
 	o.JSONResponse = o.JSONResponse || base.JSONResponse
 	o.Stateless = o.Stateless || base.Stateless

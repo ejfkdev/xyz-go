@@ -22,7 +22,7 @@ const httpFrontend = true
 // 流式 HTTP 工具端点挂在 /mcp（nomcp 构建下自动消失）。
 func runServe(ctx context.Context, reg *registry.Registry, args []string, cfg Config) int {
 	cfg = parseServeArgs(args, cfg)
-	handler, err := httpapi.Handler(reg)
+	handler, err := httpapi.HandlerWith(reg, cfg.ChannelDefaults)
 	if err != nil {
 		logx.Errorf("%v", err)
 		return 2

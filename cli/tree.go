@@ -52,6 +52,9 @@ func New(reg *registry.Registry) (*App, error) {
 }
 
 func (a *App) addEntry(e *spec.Entry) error {
+	if e.CLI.Skip {
+		return nil // 通道层面整体移除：不建子命令、别名、completion
+	}
 	parts := strings.Split(e.Name, ".")
 	node := a.root
 	parent := a.root

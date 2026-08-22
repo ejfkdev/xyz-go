@@ -16,7 +16,7 @@ import (
 	"github.com/ejfkdev/xyz-go/spec"
 )
 
-func makeHandler(e *spec.Entry, allowed map[string]bool) func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+func makeHandler(e *spec.Entry, allowed map[string]bool, defaults map[string]string) func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 		if pv := req.ProtocolVersion(); pv != "" && !allowed[pv] {
 			return nil, fmt.Errorf("tool %q: protocol version %q is not enabled on this server", e.Name, pv)
@@ -30,6 +30,12 @@ func makeHandler(e *spec.Entry, allowed map[string]bool) func(context.Context, *
 		// 接口默认值只补「客户端未提供」的键；显式入参优先（与 CLI/HTTP 一致），
 		// 不能覆盖调用方传来的值。
 		for k, v := range e.MCPDefaults() {
+			if _, ok := args[k]; !ok {
+				args[k] = v
+			}
+		}
+		// 通道级默认参数（--default k=v）：只补缺席键。
+		for k, v := range defaults {
 			if _, ok := args[k]; !ok {
 				args[k] = v
 			}

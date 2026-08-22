@@ -61,6 +61,12 @@ type Config struct {
 	// 键名见 langx 目录（xyz-spec §15.8 的规范键表）；只覆盖内置键亦可。
 	Translations map[string]map[string]string
 
+	// ChannelDefaults 是 serve/mcp 启动时注入的一批通道级默认参数
+	// （字段线上名 → 字符串值）：请求/调用未显式提供时自动补上，优先级
+	// 高于全局 default tag、低于显式入参与接口默认。命令行：
+	// --default k=v（可重复/逗号分隔对），代码侧写入本表。
+	ChannelDefaults map[string]string
+
 	// HelpBefore/HelpAfter 是 help 总览的自定义文本块：前者原样插在总览
 	// 开头（程序名/描述/版本/仓库地址等自己拼），后者插在结尾（命令表之后，
 	// 即使命令表被隐藏也打印）。空 = 不插入。

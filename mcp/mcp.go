@@ -89,6 +89,9 @@ type Options struct {
 
 	// CORSOrigins enables CORS for the http/sse transports ("*" = any origin).
 	CORSOrigins []string
+
+	// Defaults 是通道级默认参数（--default k=v）：调用未显式提供时补上。
+	Defaults map[string]string
 }
 
 // Server builds a ready sdkmcp.Server with one tool per registered command.
@@ -106,6 +109,9 @@ func Server(reg *registry.Registry, opts Options) (*sdkmcp.Server, error) {
 		&sdkmcp.ServerOptions{Instructions: opts.Instructions})
 	allowed := versionSet(opts.Versions)
 	for _, e := range reg.All() {
+		if e.MCP.Skip {
+			continue // 通道层面整体移除：不成为工具
+		}
 		schemaJSON, err := json.Marshal(e.InputSchema)
 		if err != nil {
 			return nil, fmt.Errorf("mcp: tool %q: %w", e.Name, err)
@@ -121,7 +127,7 @@ func Server(reg *registry.Registry, opts Options) (*sdkmcp.Server, error) {
 				tool.OutputSchema = json.RawMessage(outJSON)
 			}
 		}
-		server.AddTool(tool, makeHandler(e, allowed))
+		server.AddTool(tool, makeHandler(e, allowed, opts.Defaults))
 	}
 	return server, nil
 }

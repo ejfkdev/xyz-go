@@ -16,6 +16,9 @@ func (a *App) printCompletion(out, errOut io.Writer, shell string) int {
 	names := map[string]bool{}
 	var list []string
 	for _, e := range a.reg.All() {
+		if e.CLI.Skip {
+			continue
+		}
 		if top, _, _ := strings.Cut(e.Name, "."); top != "" && !names[top] {
 			names[top] = true
 			list = append(list, top)

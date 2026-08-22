@@ -92,6 +92,12 @@ func stripXYZFlags(args []string, cfg *Config) ([]string, error) {
 			}
 		case strings.HasPrefix(a, "--xyz.tls-key="):
 			cfg.KeyFile = strings.TrimPrefix(a, "--xyz.tls-key=")
+		case a == "--xyz.default":
+			if v, err := value(); err != nil {
+				return nil, err
+			} else if err := mergeDefaultsFlag(cfg, v); err != nil {
+				return nil, err
+			}
 		case a == "--xyz.lang":
 			if v, err := value(); err != nil {
 				return nil, err
@@ -105,6 +111,10 @@ func stripXYZFlags(args []string, cfg *Config) ([]string, error) {
 				return nil, err
 			} else {
 				cfg.CORSOrigins = mergeTokens(cfg.CORSOrigins, v)
+			}
+		case strings.HasPrefix(a, "--xyz.default="):
+			if err := mergeDefaultsFlag(cfg, strings.TrimPrefix(a, "--xyz.default=")); err != nil {
+				return nil, err
 			}
 		case strings.HasPrefix(a, "--xyz.lang="):
 			{
@@ -123,6 +133,25 @@ func stripXYZFlags(args []string, cfg *Config) ([]string, error) {
 	return out, nil
 }
 
+// mergeDefaultsFlag 解析 "k=v,a=b" 形式的默认参数对写入 ChannelDefaults。
+func mergeDefaultsFlag(cfg *Config, flag string) error {
+	if cfg.ChannelDefaults == nil {
+		cfg.ChannelDefaults = map[string]string{}
+	}
+	for _, pair := range strings.Split(flag, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(pair, "=")
+		if !ok || strings.TrimSpace(k) == "" {
+			return fmt.Errorf("invalid --default %q (want key=value)", pair)
+		}
+		cfg.ChannelDefaults[strings.TrimSpace(k)] = v
+	}
+	return nil
+}
+
 // parseServeArgs 解析 serve 模式的裸名 flag（--addr/--bearer/--timeout/
 // --tls-*/--cors）；全局 --xyz.* 与代码 Config 已由根派发器折叠进 cfg。
 // 返回扩展后的 Config（值语义）。
@@ -132,6 +161,11 @@ func parseServeArgs(args []string, cfg Config) Config {
 	}
 	for i := 0; i < len(args); i++ {
 		switch {
+		case args[i] == "--default" && i+1 < len(args):
+			i++
+			_ = mergeDefaultsFlag(&cfg, args[i])
+		case strings.HasPrefix(args[i], "--default="):
+			_ = mergeDefaultsFlag(&cfg, strings.TrimPrefix(args[i], "--default="))
 		case args[i] == "--addr" && i+1 < len(args):
 			i++
 			cfg.Addr = args[i]

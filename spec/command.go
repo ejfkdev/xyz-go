@@ -39,6 +39,9 @@ type CliHints struct {
 	// flag), the whole argument list is forwarded to it (udf image.tar with
 	// default extract == udf extract image.tar).
 	Default bool
+	// Skip 从 CLI 通道整体移除该命令：不建子命令、别名不生效、不出现在
+	// completion。与 Hidden 的区别：Hidden 只是帮助列表藏起、仍可执行。
+	Skip bool
 	// Before/After 是 -h 帮助的自定义文本块：分别插在帮助最前（description
 	// 之前）与最后（Global Flags 之后）。原样输出（多行、缩进自控；结尾换行
 	// 归一）。空 = 不插入。
@@ -64,7 +67,10 @@ type HTTPHints struct {
 	Method  string                   // GET, POST, ...
 	Path    string                   // route pattern, e.g. "/users"
 	Timeout time.Duration            // per-request override; 0 keeps the frontend default
-	Fields  map[string]HTTPFieldHint // per-field HTTP configuration
+	// Skip 从 HTTP 通道整体移除该命令：不注册路由、不进 /openapi.json。
+	// 比「不给 Method/Path」更声明式（适合只适合 CLI 的命令）。
+	Skip   bool
+	Fields map[string]HTTPFieldHint // per-field HTTP configuration
 }
 
 // HTTPFieldHint is Define-time per-field configuration for the HTTP frontend.
@@ -80,6 +86,9 @@ type HTTPFieldHint struct {
 type MCPHints struct {
 	Annotations []string                // e.g. "read", "write", "destructive"
 	Fields      map[string]MCPFieldHint // per-field MCP configuration
+	// Skip 从 MCP 通道整体移除该命令：不成为工具（负担重的守护/本地命令
+	// 用；配合 CLI.Skip/HTTP.Skip 自由组合每个命令的通道面）。
+	Skip bool
 }
 
 // MCPFieldHint is Define-time per-field configuration for the MCP frontend.

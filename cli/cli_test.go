@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	errs "github.com/ejfkdev/xyz-go/errors"
 	"github.com/ejfkdev/xyz-go/registry"
@@ -478,6 +479,101 @@ func TestCLIDuplicateDefaultRejected(t *testing.T) {
 		t.Fatal("duplicate default children should be a build error")
 	} else if !strings.Contains(err.Error(), "default conflicts") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCLIChannelSkipAndTypes(t *testing.T) {
+	reg := registry.New()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// extract：只 CLI（HTTP/MCP Skip）；watch：整条 CLI Skip → 不进树/completion
+	must(func() error {
+		_, err := spec.Define("extract", addHandler).
+			Summary("提取").
+			CLI(spec.CliHints{Usage: "extract <name>", Skip: false, Fields: map[string]spec.CliFieldHint{"age": {Shorthand: "a"}}}).
+			HTTP(spec.HTTPHints{Skip: true}).
+			MCP(spec.MCPHints{Skip: true}).
+			Register(reg)
+		return err
+	}())
+	must(func() error {
+		_, err := spec.Define("watch.target", addHandler).CLI(spec.CliHints{Skip: true}).Register(reg)
+		return err
+	}())
+	app, err := New(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Skip 命令不在树里：任何参数都不命中
+	out, _, code := runApp(t, app, "watch", "target", "x")
+	if code != 0 || !strings.Contains(out, "Usage:") {
+		t.Fatalf("skipped command must not be routable: code=%d out=%q", code, out)
+	}
+	// help 类型保真：age (int) → integer
+	out2, _, code2 := runApp(t, app, "extract", "-h")
+	if code2 != 0 {
+		t.Fatalf("code=%d", code2)
+	}
+	if !strings.Contains(out2, "--age integer") {
+		t.Fatalf("help should render integer: %q", out2)
+	}
+	// testRegistry 里 tags 是 []string → strings (repeatable)
+	reg2 := registry.New()
+	must(func() error {
+		_, err := spec.Define("t.list", listHandler).Register(reg2)
+		return err
+	}())
+	app2, err := New(reg2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out3, _, _ := runApp(t, app2, "t", "list", "-h")
+	if !strings.Contains(out3, "strings (repeatable)") && !strings.Contains(out3, "string") {
+		t.Fatalf("help flags missing: %q", out3)
+	}
+}
+
+func TestCLIDaemonCommandRunsUntilCancel(t *testing.T) {
+	// #2 守护写法的烟测：handler 阻塞到 ctx.Done() 再返回（CLI 通道），
+	// 取消后退出 0。HTTP/MCP 侧由 Skip 位排除（见通道开关测试）。
+	reg := registry.New()
+	started := make(chan struct{})
+	stopped := make(chan struct{})
+	type daemonArgs struct{}
+	_, err := spec.Define("watch", func(ctx context.Context, _ *daemonArgs) (string, error) {
+		close(started)
+		<-ctx.Done()
+		close(stopped)
+		return "stopped", nil
+	}).CLI(spec.CliHints{Usage: "watch"}).HTTP(spec.HTTPHints{Skip: true}).MCP(spec.MCPHints{Skip: true}).Register(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() {
+		done <- app.RunContext(ctx, []string{"watch"})
+	}()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler never started")
+	}
+	cancel()
+	if code := <-done; code != 0 {
+		t.Fatalf("daemon exit code = %d, want 0", code)
+	}
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not observe cancellation")
 	}
 }
 

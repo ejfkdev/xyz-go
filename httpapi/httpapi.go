@@ -34,15 +34,24 @@ const maxBodyBytes = 1 << 20 // 请求体上限 1MiB
 // Handler builds the router for registered HTTP routes plus /openapi.json.
 // Conflicting method+path registrations are errors.
 func Handler(reg *registry.Registry) (http.Handler, error) {
+	return HandlerWith(reg, nil)
+}
+
+// HandlerWith 是带通道级默认参数的 Handler（serve --default k=v 注入：
+// 缺席键补上、显式入参优先）。
+func HandlerWith(reg *registry.Registry, defaults map[string]string) (http.Handler, error) {
 	if reg == nil {
 		return nil, fmt.Errorf("httpapi: nil registry")
 	}
 	mux := http.NewServeMux()
 	for _, e := range reg.All() {
+		if e.HTTP.Skip {
+			continue // 通道层面整体移除
+		}
 		if e.HTTP.Method == "" || e.HTTP.Path == "" {
 			continue // 该命令没有声明 HTTP 路由（CLI/MCP 专用）
 		}
-		if err := registerSafe(mux, e); err != nil {
+		if err := registerSafe(mux, e, defaults); err != nil {
 			return nil, err
 		}
 	}
@@ -55,22 +64,28 @@ func Handler(reg *registry.Registry) (http.Handler, error) {
 }
 
 // registerSafe 用 recover 把标准库 mux 的路由冲突 panic 转成注册期错误。
-func registerSafe(mux *http.ServeMux, e *spec.Entry) (err error) {
+func registerSafe(mux *http.ServeMux, e *spec.Entry, defaults map[string]string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("httpapi: route %q %q conflicts with an existing route", e.HTTP.Method, e.HTTP.Path)
 		}
 	}()
-	mux.HandleFunc(e.HTTP.Method+" "+e.HTTP.Path, makeHTTPHandler(e))
+	mux.HandleFunc(e.HTTP.Method+" "+e.HTTP.Path, makeHTTPHandler(e, defaults))
 	return nil
 }
 
-func makeHTTPHandler(e *spec.Entry) http.HandlerFunc {
+func makeHTTPHandler(e *spec.Entry, defaults map[string]string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		m := map[string]any{}
 		// 铺底：HTTP 专属默认值（全局默认由 Invoke 补齐）。
 		for k, v := range e.HTTPDefaults() {
 			m[k] = v
+		}
+		// 通道级默认参数（serve --default k=v）：只补缺席键。
+		for k, v := range defaults {
+			if _, ok := m[k]; !ok {
+				m[k] = v
+			}
 		}
 		// JSON body 作为基础入参（非 GET/HEAD 且带体时解析）；
 		// 读出的字节同时服务于后文的 form 绑定（避免二读 body）。
@@ -182,10 +197,15 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // middleware; Handler below composes all routed entries plus /healthz and
 // /openapi.json.
 func HandlerFor(e *spec.Entry) http.HandlerFunc {
+	return HandlerForWith(e, nil)
+}
+
+// HandlerForWith 是带通道级默认参数的 HandlerFor。
+func HandlerForWith(e *spec.Entry, defaults map[string]string) http.HandlerFunc {
 	if e == nil {
 		return func(w http.ResponseWriter, _ *http.Request) {
 			writeError(w, http.StatusNotFound, "not found")
 		}
 	}
-	return makeHTTPHandler(e)
+	return makeHTTPHandler(e, defaults)
 }

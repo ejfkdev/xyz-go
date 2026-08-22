@@ -225,6 +225,62 @@ func TestOverviewLanguage(t *testing.T) {
 	langx.Set(langx.En, nil)
 }
 
+func TestTryRunComposability(t *testing.T) {
+	reg := testReg(t, "a.b")
+	// 未命中顶层词：静默 (0,false)
+	code, handled := TryRun(reg, []string{"nope"})
+	if code != 0 || handled {
+		t.Fatalf("TryRun unknown top = (%d,%v), want (0,false)", code, handled)
+	}
+	// 已知路径/内建照常
+	if code, handled := TryRun(reg, []string{"a", "b", "--s", "x"}); !handled || code != 0 {
+		t.Fatalf("TryRun known = (%d,%v)", code, handled)
+	}
+	if code, handled := TryRun(reg, []string{"-v"}); !handled || code != 0 {
+		t.Fatalf("TryRun -v = (%d,%v)", code, handled)
+	}
+	// 已知命令下的未知 flag 交给 CLI 自身报错（退出 2，handled=true）
+	if code, handled := TryRun(reg, []string{"a", "b", "--ghost"}); !handled || code != 2 {
+		t.Fatalf("TryRun known+--ghost = (%d,%v), want (2,true)", code, handled)
+	}
+	// CLI Skip 的命令段视为未命中
+	reg2 := registry.New()
+	if _, err := spec.Define("watch.target", func(_ context.Context, _ *tArgs) (string, error) { return "", nil }).
+		CLI(spec.CliHints{Skip: true}).Register(reg2); err != nil {
+		t.Fatal(err)
+	}
+	if _, handled := TryRun(reg2, []string{"watch"}); handled {
+		t.Fatal("CLI-skipped top must be composable-miss")
+	}
+}
+
+func TestChannelDefaultsFlag(t *testing.T) {
+	cfg := Config{}
+	rest, err := stripXYZFlags([]string{"--xyz.default=index=./wiki", "--xyz.default", "k=v,a=b", "serve"}, &cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rest) != 1 || rest[0] != "serve" {
+		t.Fatalf("rest = %v", rest)
+	}
+	want := map[string]string{"index": "./wiki", "k": "v", "a": "b"}
+	for k, v := range want {
+		if cfg.ChannelDefaults[k] != v {
+			t.Fatalf("ChannelDefaults[%s] = %q, want %q", k, cfg.ChannelDefaults[k], v)
+		}
+	}
+	// serve 裸名
+	cfg2 := Config{}
+	cfg2 = parseServeArgs([]string{"--default", "index=./wiki"}, cfg2)
+	if cfg2.ChannelDefaults["index"] != "./wiki" {
+		t.Fatalf("serve bare --default lost: %v", cfg2.ChannelDefaults)
+	}
+	// 非法对报错
+	if _, err := stripXYZFlags([]string{"--xyz.default=noequals"}, &Config{}); err == nil {
+		t.Fatal("invalid --default pair accepted")
+	}
+}
+
 func TestPrintOverviewHelpBlocks(t *testing.T) {
 	reg := testReg(t, "a.b")
 	var buf bytes.Buffer
