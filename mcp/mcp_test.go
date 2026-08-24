@@ -359,3 +359,37 @@ func TestDaemonExcludesHTTPAndMCP(t *testing.T) {
 		t.Fatalf("daemon leaked into MCP tools: %v", names)
 	}
 }
+
+func TestMCPNameOverride(t *testing.T) {
+	reg := registry.New()
+	type args struct {
+		Msg string `json:"msg"`
+	}
+	if _, err := spec.Define("svc.echo", func(_ context.Context, in *args) (string, error) {
+		return in.Msg, nil
+	}).Summary("回声").MCP(spec.MCPHints{Name: "sys.echo", Annotations: []string{"read"}}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := connectPair(t, reg, Options{})
+	var names []string
+	for tool, err := range cs.Tools(context.Background(), nil) {
+		if err != nil {
+			t.Fatalf("Tools: %v", err)
+		}
+		names = append(names, tool.Name)
+	}
+	if len(names) != 1 || names[0] != "sys.echo" {
+		t.Fatalf("tools = %v, want [sys.echo] (MCP name override)", names)
+	}
+	// 覆写名可调用，原名（点分层级名）不再暴露。
+	if _, err := cs.CallTool(context.Background(), &sdkmcp.CallToolParams{
+		Name: "sys.echo", Arguments: map[string]any{"msg": "hi"},
+	}); err != nil {
+		t.Fatalf("CallTool via override name: %v", err)
+	}
+	if _, err := cs.CallTool(context.Background(), &sdkmcp.CallToolParams{
+		Name: "svc.echo", Arguments: map[string]any{"msg": "hi"},
+	}); err == nil {
+		t.Fatal("original entry name still callable, want unknown-tool error")
+	}
+}

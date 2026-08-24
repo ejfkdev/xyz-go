@@ -88,7 +88,13 @@ type HTTPFieldHint struct {
 // overrides can live here in Fields, with the same merge semantics as
 // CliHints.
 type MCPHints struct {
-	Annotations []string                // e.g. "read", "write", "destructive"
+	// Name overrides the tool name offered to MCP clients. Empty keeps the
+	// entry name (the dotted path shared with the CLI frontend); a non-empty
+	// value decouples the tool name from the CLI/HTTP naming, so prefixes
+	// and namespaces can differ per channel.
+	Name string
+	// Annotations e.g. "read", "write", "destructive".
+	Annotations []string
 	Fields      map[string]MCPFieldHint // per-field MCP configuration
 	// Skip 从 MCP 通道整体移除该命令：不成为工具（负担重的守护/本地命令
 	// 用；配合 CLI.Skip/HTTP.Skip 自由组合每个命令的通道面）。

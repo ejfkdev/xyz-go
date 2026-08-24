@@ -85,6 +85,16 @@ func toStructured(v any) any {
 	return out
 }
 
+// toolName resolves the tool name offered to MCP clients: the per-command
+// MCPHints.Name override wins over the dotted entry name, so the MCP
+// namespace can differ from the CLI/HTTP naming.
+func toolName(e *spec.Entry) string {
+	if e.MCP.Name != "" {
+		return e.MCP.Name
+	}
+	return e.Name
+}
+
 func toolDescription(e *spec.Entry) string {
 	if e.Summary != "" && e.Description != "" {
 		return e.Summary + "\n\n" + e.Description

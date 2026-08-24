@@ -117,7 +117,7 @@ func Server(reg *registry.Registry, opts Options) (*sdkmcp.Server, error) {
 			return nil, fmt.Errorf("mcp: tool %q: %w", e.Name, err)
 		}
 		tool := &sdkmcp.Tool{
-			Name:        e.Name,
+			Name:        toolName(e),
 			Description: toolDescription(e),
 			InputSchema: json.RawMessage(schemaJSON),
 			Annotations: parseAnnotations(e),
