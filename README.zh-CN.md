@@ -133,6 +133,43 @@ example completion bash|zsh|fish  内置 shell 补全脚本
 | `[]struct` | 对齐表格（表头+分隔线） | JSON 数组 |
 | `map` | 按键排序键值对 | JSON 对象 |
 
+### 逐通道输出函数（自定义渲染）
+
+每个通道可通过 channel hints 上的 `Output` 字段**独立**覆盖渲染——三个
+通道输出形态可以完全不同，且无需动核心。三端优先级一致：**机器模式
+（`--json` 等）> Output 自定义 > §12.7 信封投影 > 默认渲染**；错误路径
+不经过 Output（状态码/退出码仍按分类映射）。`v` 与默认渲染看到的是同一
+个返回值。
+
+```go
+xyz.Define("user.add", addUser).Summary("创建用户").
+	CLI(xyz.CliHints{
+		Output: func(w io.Writer, v any) error { // 富文本/彩色/分页，随你发挥
+			return 自定义渲染(w, v)
+		},
+	}).
+	HTTP(xyz.HTTPHints{
+		Method: "POST", Path: "/users/{name}",
+		Output: func(w http.ResponseWriter, r *http.Request, e *spec.Entry, v any) error {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(201)
+			_, err := fmt.Fprintf(w, "created: %v", v)
+			return err
+		},
+	}).
+	MCP(xyz.MCPHints{
+		Output: func(w io.Writer, v any) error { // 自定义 textContent（如 markdown）
+			_, err := fmt.Fprintf(w, "## result: %v", v)
+			return err
+		}, // structuredContent 仍由框架生成，双份契约不变
+	}).
+	Run()
+```
+
+被程序调用（管道、非 `--json`）时，让 Output 自行回落纯文本（例如改为
+调用默认 `cli.Render`）；更稳妥的做法是把各前端的机器形态（`--json`、
+HTTP 响应体、MCP structuredContent）当作稳定契约，人类形态仅作呈现层。
+
 ## 错误分类
 
 handler 返回 `errs "github.com/ejfkdev/xyz-go/errors"` 分类错误，一次分类驱动三个通道：

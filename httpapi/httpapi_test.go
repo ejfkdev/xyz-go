@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -347,5 +348,33 @@ func TestHTTPBlockEnvelopePassThrough(t *testing.T) {
 	code, body := do(t, h, "GET", "/blocks?query=x", "")
 	if code != 200 || !strings.Contains(body, `"content"`) || !strings.Contains(body, "iVA=") {
 		t.Fatalf("envelope passthrough: code=%d body=%q", code, body)
+	}
+}
+
+func TestHTTPCustomOutputFunc(t *testing.T) {
+	reg := buildHTTPReg(t)
+	if _, err := spec.Define("cust.http", func(_ context.Context, in *searchArgs) (int, error) {
+		return 42, nil
+	}).HTTP(spec.HTTPHints{
+		Method: "GET", Path: "/custom",
+		Output: func(w http.ResponseWriter, r *http.Request, e *spec.Entry, v any) error {
+			w.Header().Set("X-Custom", "yes")
+			w.WriteHeader(http.StatusCreated)
+			_, err := fmt.Fprintf(w, "created=%v", v)
+			return err
+		},
+	}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	h := mustHandler(t, reg)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/custom?query=x", nil)
+	h.ServeHTTP(rec, req)
+	if rec.Code != 201 || rec.Header().Get("X-Custom") != "yes" || rec.Body.String() != "created=42" {
+		t.Fatalf("custom response: %d %v %q", rec.Code, rec.Header(), rec.Body.String())
+	}
+	// 返回 201 响应不落入 JSON 默认分支：Content-Type 不应被框架添加 json。
+	if strings.Contains(rec.Header().Get("Content-Type"), "application/json") {
+		t.Fatalf("framework JSON header leaked into custom output: %v", rec.Header())
 	}
 }

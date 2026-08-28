@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -673,5 +674,56 @@ func TestCLIBlockProjection(t *testing.T) {
 	out2, _, code2 := runApp(t, app, "blk", "show", "--json")
 	if code2 != 0 || !strings.Contains(out2, `"content"`) {
 		t.Fatalf("--json envelope: code=%d out=%q", code2, out2)
+	}
+}
+
+func TestCLICustomOutputFunc(t *testing.T) {
+	reg := registry.New()
+	called := 0
+	if _, err := spec.Define("rich.show", func(_ context.Context, in *sumArgs) (int, error) {
+		return in.A + in.B, nil
+	}).CLI(spec.CliHints{
+		Output: func(w io.Writer, v any) error {
+			called++
+			_, err := fmt.Fprintf(w, "\x1b[31mRICH %v\x1b[0m\n", v)
+			return err
+		},
+	}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _, code := runApp(t, app, "rich", "show", "--a", "1", "--b", "2")
+	if code != 0 || called != 1 || !strings.Contains(out, "\x1b[31mRICH 3\x1b[0m") {
+		t.Fatalf("custom output: code=%d out=%q called=%d", code, out, called)
+	}
+	// --json 机器模式优先：自定义渲染不触发，输出原始 JSON。
+	before := called
+	out2, _, code2 := runApp(t, app, "rich", "show", "--a", "1", "--b", "2", "--json")
+	if code2 != 0 || called != before || !strings.Contains(out2, "3") {
+		t.Fatalf("--json bypass: code=%d out=%q called=%d", code2, out2, called)
+	}
+	// 错误路径不经过自定义渲染（validation 错误 → stderr，called 不变）。
+	type needArgs struct {
+		N string `json:"n" validate:"min=5"`
+	}
+	if _, err := spec.Define("rich.fail", func(_ context.Context, in *needArgs) (int, error) {
+		return 1, nil
+	}).CLI(spec.CliHints{
+		Output: func(w io.Writer, v any) error {
+			called = -100 // 错误路径绝不能走到这里
+			return nil
+		},
+	}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	app2, err := New(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, code3 := runApp(t, app2, "rich", "fail", "--n", "x"); code3 == 0 || called == -100 {
+		t.Fatalf("error path must not invoke Output: code=%d called=%d", code3, called)
 	}
 }

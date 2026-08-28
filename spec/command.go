@@ -52,6 +52,9 @@ type CliHints struct {
 	Before string
 	After  string
 	Fields map[string]CliFieldHint // per-field CLI configuration
+	// Output 自定义该命令的 CLI 结果渲染（富文本/彩色等），替代默认
+	// Render；--json 机器模式仍优先（见 spec/output.go 的契约说明）。
+	Output CLIOutputFunc
 }
 
 // CliFieldHint is Define-time per-field configuration for the CLI frontend.
@@ -75,6 +78,9 @@ type HTTPHints struct {
 	// 比「不给 Method/Path」更声明式（适合只适合 CLI 的命令）。
 	Skip   bool
 	Fields map[string]HTTPFieldHint // per-field HTTP configuration
+	// Output 全权接管该命令的 HTTP 响应（状态码/头/体）。设置后前端不再
+	// 自动写 JSON 响应（错误路径不经过 Output）。
+	Output HTTPOutputFunc
 }
 
 // HTTPFieldHint is Define-time per-field configuration for the HTTP frontend.
@@ -99,6 +105,9 @@ type MCPHints struct {
 	// Skip 从 MCP 通道整体移除该命令：不成为工具（负担重的守护/本地命令
 	// 用；配合 CLI.Skip/HTTP.Skip 自由组合每个命令的通道面）。
 	Skip bool
+	// Output 自定义该命令 MCP 结果的文本内容（textContent）：写入 w 的文本
+	// 成为唯一的 TextContent；structuredContent 仍由框架生成（双份契约）。
+	Output MCPOutputFunc
 }
 
 // MCPFieldHint is Define-time per-field configuration for the MCP frontend.

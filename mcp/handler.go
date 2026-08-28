@@ -64,6 +64,16 @@ func makeHandler(e *spec.Entry, allowed map[string]bool, defaults map[string]str
 				return res, nil
 			}
 		}
+		if e.MCP.Output != nil {
+			var buf bytes.Buffer
+			if err := e.MCP.Output(&buf, out); err != nil {
+				return nil, err
+			}
+			return &sdkmcp.CallToolResult{
+				Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: buf.String()}},
+				StructuredContent: toStructured(out),
+			}, nil
+		}
 		return &sdkmcp.CallToolResult{
 			Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: renderText(out)}},
 			StructuredContent: toStructured(out),

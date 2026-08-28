@@ -151,6 +151,10 @@ func makeHTTPHandler(e *spec.Entry, defaults map[string]string) http.HandlerFunc
 			writeError(w, errs.HTTPStatus(errs.Classify(err)), causeMessage(err))
 			return
 		}
+		if e.HTTP.Output != nil {
+			_ = e.HTTP.Output(w, r, e, out)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")

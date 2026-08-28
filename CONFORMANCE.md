@@ -11,6 +11,10 @@ D-go-01 in [xyz-spec/deviations.md](https://github.com/ejfkdev/xyz-spec/blob/mai
 (Go has no language-native enum arguments; semantics now settled by the
 Rust implementation, Go implementation planned against that fixture).
 
+Extensions (registered in the same deviations file): D-go-03 — per-channel
+output functions (`Output` fields on the channel hints; §10.6 stays
+normative for the default projections).
+
 ## Checklist
 
 Every Class A item (conformance.md) is implemented and covered by the

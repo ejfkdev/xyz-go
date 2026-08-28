@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -429,5 +431,37 @@ func TestMCPBlockResult(t *testing.T) {
 	}
 	if _, ok := sc["content"]; !ok {
 		t.Fatalf("envelope key missing: %v", sc)
+	}
+}
+
+func TestMCPCustomOutputFunc(t *testing.T) {
+	reg := registry.New()
+	if _, err := spec.Define("md.tool", func(_ context.Context, in *sumArgs) (int, error) {
+		return in.A + in.B, nil
+	}).MCP(spec.MCPHints{
+		Output: func(w io.Writer, v any) error {
+			_, err := fmt.Fprintf(w, "## sum = %v", v)
+			return err
+		},
+	}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := connectPair(t, reg, Options{})
+	res, err := cs.CallTool(context.Background(), &sdkmcp.CallToolParams{
+		Name:      "md.tool",
+		Arguments: map[string]any{"a": float64(20), "b": float64(22)},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if len(res.Content) != 1 {
+		t.Fatalf("content len = %d", len(res.Content))
+	}
+	if txt := res.Content[0].(*sdkmcp.TextContent).Text; txt != "## sum = 42" {
+		t.Fatalf("text content = %q", txt)
+	}
+	// structuredContent 仍由框架生成（双份契约保持）。
+	if res.StructuredContent == nil {
+		t.Fatal("structuredContent should still be auto-generated")
 	}
 }
