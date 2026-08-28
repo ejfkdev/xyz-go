@@ -10,6 +10,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ejfkdev/xyz-go/block"
 	errs "github.com/ejfkdev/xyz-go/errors"
 	"github.com/ejfkdev/xyz-go/httpapi"
 	"github.com/ejfkdev/xyz-go/registry"
@@ -391,5 +392,42 @@ func TestMCPNameOverride(t *testing.T) {
 		Name: "svc.echo", Arguments: map[string]any{"msg": "hi"},
 	}); err == nil {
 		t.Fatal("original entry name still callable, want unknown-tool error")
+	}
+}
+
+func TestMCPBlockResult(t *testing.T) {
+	reg := registry.New()
+	if _, err := spec.Define("blk.show", func(_ context.Context, _ *sumArgs) (block.Envelope, error) {
+		return block.Envelope{Content: []block.Item{
+			block.Text("hi"),
+			block.Image("image/png", []byte{0x01, 0x02}),
+		}}, nil
+	}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := connectPair(t, reg, Options{})
+	res, err := cs.CallTool(context.Background(), &sdkmcp.CallToolParams{Name: "blk.show"})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %+v", res)
+	}
+	if len(res.Content) != 2 {
+		t.Fatalf("content len = %d, want 2 blocks verbatim", len(res.Content))
+	}
+	if txt, ok := res.Content[0].(*sdkmcp.TextContent); !ok || txt.Text != "hi" {
+		t.Fatalf("content[0] = %#v", res.Content[0])
+	}
+	if img, ok := res.Content[1].(*sdkmcp.ImageContent); !ok || img.MIMEType != "image/png" || string(img.Data) != "\x01\x02" {
+		t.Fatalf("content[1] = %#v", res.Content[1])
+	}
+	// structuredContent 保留信封（唯一键 content）。
+	sc, ok := res.StructuredContent.(map[string]any)
+	if !ok || len(sc) != 1 {
+		t.Fatalf("structuredContent = %#v", res.StructuredContent)
+	}
+	if _, ok := sc["content"]; !ok {
+		t.Fatalf("envelope key missing: %v", sc)
 	}
 }

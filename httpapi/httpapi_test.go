@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ejfkdev/xyz-go/block"
 	errs "github.com/ejfkdev/xyz-go/errors"
 	"github.com/ejfkdev/xyz-go/registry"
 	"github.com/ejfkdev/xyz-go/spec"
@@ -329,5 +330,22 @@ func TestHTTPFormBinding(t *testing.T) {
 	h.ServeHTTP(rec2, req2)
 	if rec2.Code != 400 {
 		t.Fatalf("declared-JSON bad body: code=%d, want 400", rec2.Code)
+	}
+}
+
+func TestHTTPBlockEnvelopePassThrough(t *testing.T) {
+	reg := buildHTTPReg(t)
+	if _, err := spec.Define("blk.http", func(_ context.Context, _ *searchArgs) (block.Envelope, error) {
+		return block.Envelope{Content: []block.Item{
+			block.Text("hi"),
+			block.Image("image/png", []byte{0x89, 0x50}),
+		}}, nil
+	}).HTTP(spec.HTTPHints{Method: "GET", Path: "/blocks"}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	h := mustHandler(t, reg)
+	code, body := do(t, h, "GET", "/blocks?query=x", "")
+	if code != 200 || !strings.Contains(body, `"content"`) || !strings.Contains(body, "iVA=") {
+		t.Fatalf("envelope passthrough: code=%d body=%q", code, body)
 	}
 }

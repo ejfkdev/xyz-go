@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ejfkdev/xyz-go/block"
 	errs "github.com/ejfkdev/xyz-go/errors"
 	"github.com/ejfkdev/xyz-go/registry"
 	"github.com/ejfkdev/xyz-go/spec"
@@ -633,5 +635,43 @@ func TestCLIHelpBlocks(t *testing.T) {
 	out3, _, code3 := runApp(t, app2, "user", "add", "-h")
 	if code3 != 0 || !strings.HasPrefix(out3, "LEAFBLK\n") {
 		t.Fatalf("leaf -h missing before block: code=%d out=%q", code3, out3)
+	}
+}
+
+func TestCLIBlockProjection(t *testing.T) {
+	reg := registry.New()
+	if _, err := spec.Define("blk.show", func(_ context.Context, _ *sumArgs) (block.Envelope, error) {
+		return block.Envelope{Content: []block.Item{
+			block.Text("hello blocks"),
+			block.Image("image/png", []byte{0x89, 0x50, 0x4e, 0x47}),
+		}}, nil
+	}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 人类输出：文本块内联，二进制块打印临时文件路径且文件内容正确。
+	out, _, code := runApp(t, app, "blk", "show")
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 || lines[0] != "hello blocks" {
+		t.Fatalf("projection = %v", lines)
+	}
+	data, err := os.ReadFile(lines[1])
+	if err != nil {
+		t.Fatalf("temp file missing: %v", err)
+	}
+	if string(data) != string([]byte{0x89, 0x50, 0x4e, 0x47}) {
+		t.Fatalf("temp file content = %v", data)
+	}
+	os.Remove(lines[1])
+	// --json：信封 JSON 原样（不投影）。
+	out2, _, code2 := runApp(t, app, "blk", "show", "--json")
+	if code2 != 0 || !strings.Contains(out2, `"content"`) {
+		t.Fatalf("--json envelope: code=%d out=%q", code2, out2)
 	}
 }

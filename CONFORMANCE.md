@@ -1,12 +1,15 @@
 # Conformance — xyz-go
 
-Specification target: [xyz-spec](https://github.com/ejfkdev/xyz-spec) **v0.3.1**.
+Specification target: [xyz-spec](https://github.com/ejfkdev/xyz-spec) **v0.4.0**.
 
 Status: **conformant (baseline anchor)** — xyz-go is one of the two reference
 implementations the specification was written from; where ambiguous, Go
 behaviour is normative.
 
-Deviations register: none.
+Deviations register: one open — A.52 tagged unions (§4.7), registered as
+D-go-01 in [xyz-spec/deviations.md](https://github.com/ejfkdev/xyz-spec/blob/main/deviations.md)
+(Go has no language-native enum arguments; semantics now settled by the
+Rust implementation, Go implementation planned against that fixture).
 
 ## Checklist
 
@@ -16,6 +19,9 @@ following evidence:
 | Evidence | Covers |
 |---|---|
 | `go test ./...` (default tags) | A.1–A.42 pipeline, taxonomy, rendering, dispatcher semantics |
+| `block` package tests + `TestCLIBlockProjection` / `TestMCPBlockResult` / `TestHTTPBlockEnvelopePassThrough` | A.53 content-block results (§12.7): envelope detection, CLI projection, MCP verbatim `Content` + envelope `structuredContent`, HTTP pass-through |
+| daemon suite (`Daemon` marker tests) | A.50 daemon commands (§4.5a): CLI-only consumption, no rendering, graceful ctx exit |
+| MCP tool-name suite (`MCPHints.Name` tests) | A.51 tool-name override (§12.4a): upgrade-only name advertised and accepted, §3.1 grammar enforced |
 | `go test -tags "nocli nomcp nohttp" ./...` and the six build-tag combinations in `.github/workflows/test.yml` | A.38–A.39 trim invariants, four-way feature matrix |
 | `cmd/example` (11 commands) | showcase fixture §3.1, invocation matrix §3.2 |
 | `cmd/tour`, `docs/adapters.md`, `examples/cobra`, `examples/gin` | A.41 embedding surfaces, §15.2 documentation |

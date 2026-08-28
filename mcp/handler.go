@@ -11,6 +11,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ejfkdev/xyz-go/block"
 	"github.com/ejfkdev/xyz-go/cli"
 	errs "github.com/ejfkdev/xyz-go/errors"
 	"github.com/ejfkdev/xyz-go/spec"
@@ -50,6 +51,18 @@ func makeHandler(e *spec.Entry, allowed map[string]bool, defaults map[string]str
 				IsError: true,
 				Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: msg.Error()}},
 			}, nil
+		}
+		if raw, err := json.Marshal(out); err == nil {
+			if env, ok := block.DetectJSON(raw); ok {
+				res, err := blockCallResult(env, toStructured(out))
+				if err != nil {
+					return &sdkmcp.CallToolResult{
+						IsError: true,
+						Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
+					}, nil
+				}
+				return res, nil
+			}
 		}
 		return &sdkmcp.CallToolResult{
 			Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: renderText(out)}},

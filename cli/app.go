@@ -254,6 +254,9 @@ func (a *App) execute(ctx context.Context, node *cmdNode, args []string, jsonOut
 			enc.SetIndent("", "  ")
 			return enc.Encode(out)
 		}
+		if handled, err := projectBlocks(ec.Out, out); handled || err != nil {
+			return err
+		}
 		return Render(ec.Out, out)
 	}
 	for i := len(a.mws) - 1; i >= 0; i-- {
