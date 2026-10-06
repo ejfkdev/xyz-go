@@ -22,7 +22,14 @@ const httpFrontend = true
 // 流式 HTTP 工具端点挂在 /mcp（nomcp 构建下自动消失）。
 func runServe(ctx context.Context, reg *registry.Registry, args []string, cfg Config) int {
 	cfg = parseServeArgs(args, cfg)
-	handler, err := httpapi.HandlerWith(reg, cfg.ChannelDefaults)
+	meta := httpapi.ResponseMeta{
+		AppName:       cfg.resolvedName(),
+		AppVersion:    cfg.resolvedVersion(),
+		SDKVersion:    SDKVersion,
+		Headers:       cfg.ResponseHeaders,
+		NoAutoHeaders: cfg.NoServerHeaders,
+	}
+	handler, err := httpapi.HandlerWithMeta(reg, cfg.ChannelDefaults, meta)
 	if err != nil {
 		logx.Errorf("%v", err)
 		return 2
@@ -38,8 +45,10 @@ func runServe(ctx context.Context, reg *registry.Registry, args []string, cfg Co
 	if len(cfg.CORSOrigins) > 0 {
 		logx.Debugf("%s", langx.Tf("log.cors_on", fmt.Sprint(cfg.CORSOrigins)))
 	}
-	// 中间件链（由外到内）：CORS 预检（鉴权前，浏览器预检不带凭据）→ Bearer → Gzip → 路由。
-	handler = httpapi.CORS(cfg.CORSOrigins, httpapi.Bearer(cfg.BearerTokens, httpapi.Gzip(handler)))
+	// 中间件链（由外到内）：服务器上下文头（版本/自定义头，覆盖含 /mcp 的
+	// 全部路由）→ CORS 预检（鉴权前，浏览器预检不带凭据）→ Bearer → Gzip → 路由。
+	handler = httpapi.ServerHeaders(meta,
+		httpapi.CORS(cfg.CORSOrigins, httpapi.Bearer(cfg.BearerTokens, httpapi.Gzip(handler))))
 	srv := &http.Server{Addr: cfg.Addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	srv.BaseContext = func(net.Listener) context.Context { return ctx }
 	if cfg.Timeout > 0 {

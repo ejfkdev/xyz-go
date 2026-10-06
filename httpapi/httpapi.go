@@ -22,7 +22,9 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
 
 	errs "github.com/ejfkdev/xyz-go/errors"
 	"github.com/ejfkdev/xyz-go/registry"
@@ -30,6 +32,42 @@ import (
 )
 
 const maxBodyBytes = 1 << 20 // 请求体上限 1MiB
+
+// 服务器上下文响应头（xyz-spec §11.4）。默认开启；NoAutoHeaders 关闭自动头，
+// Headers 里的自定义头始终写入（它们是显式配置，不受开关影响）。
+// X-App-* 报告*应用程序*身份，X-XYZ-* 报告 xyz 库自身与本次调用的上下文。
+const (
+	HeaderAppName    = "X-App-Name"
+	HeaderAppVersion = "X-App-Version"
+	HeaderSDKVersion = "X-XYZ-Version"
+	HeaderCommand    = "X-XYZ-Command"
+	HeaderDuration   = "X-XYZ-Duration-Ms"
+)
+
+// ResponseMeta 描述 HTTP 响应附带的服务器上下文：应用身份（名字/版本）、
+// xyz 库版本、命令名、处理耗时与一批用户自定义静态头。零值即「不带任何
+// 自动头、无自定义头」。
+type ResponseMeta struct {
+	// AppName 写入 X-App-Name；空则不写该头。
+	AppName string
+	// AppVersion 写入 X-App-Version（应用程序自己的版本）；空则不写。
+	AppVersion string
+	// SDKVersion 写入 X-XYZ-Version（xyz 库自身版本）；空则不写。
+	SDKVersion string
+	// Headers 是附加到每个响应的静态头（原样写入，键名不做规范化）。
+	Headers map[string]string
+	// NoAutoHeaders 置 true 时不写 X-App-*/X-XYZ-* 五个自动头；
+	// Headers 自定义头不受影响。
+	NoAutoHeaders bool
+}
+
+// autoHeaders 报告是否应写自动上下文头。
+func (m ResponseMeta) autoHeaders() bool { return !m.NoAutoHeaders }
+
+// hasAutoContent 报告是否有任何自动头内容可写（用于零开销直通判断）。
+func (m ResponseMeta) hasAutoContent() bool {
+	return m.AppName != "" || m.AppVersion != "" || m.SDKVersion != ""
+}
 
 // Handler builds the router for registered HTTP routes plus /openapi.json.
 // Conflicting method+path registrations are errors.
@@ -40,6 +78,11 @@ func Handler(reg *registry.Registry) (http.Handler, error) {
 // HandlerWith 是带通道级默认参数的 Handler（serve --default k=v 注入：
 // 缺席键补上、显式入参优先）。
 func HandlerWith(reg *registry.Registry, defaults map[string]string) (http.Handler, error) {
+	return HandlerWithMeta(reg, defaults, ResponseMeta{})
+}
+
+// HandlerWithMeta 是带通道级默认参数与服务器上下文头的 Handler。
+func HandlerWithMeta(reg *registry.Registry, defaults map[string]string, meta ResponseMeta) (http.Handler, error) {
 	if reg == nil {
 		return nil, fmt.Errorf("httpapi: nil registry")
 	}
@@ -51,7 +94,7 @@ func HandlerWith(reg *registry.Registry, defaults map[string]string) (http.Handl
 		if e.HTTP.Method == "" || e.HTTP.Path == "" {
 			continue // 该命令没有声明 HTTP 路由（CLI/MCP 专用）
 		}
-		if err := registerSafe(mux, e, defaults); err != nil {
+		if err := registerSafe(mux, e, defaults, meta); err != nil {
 			return nil, err
 		}
 	}
@@ -64,18 +107,23 @@ func HandlerWith(reg *registry.Registry, defaults map[string]string) (http.Handl
 }
 
 // registerSafe 用 recover 把标准库 mux 的路由冲突 panic 转成注册期错误。
-func registerSafe(mux *http.ServeMux, e *spec.Entry, defaults map[string]string) (err error) {
+func registerSafe(mux *http.ServeMux, e *spec.Entry, defaults map[string]string, meta ResponseMeta) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("httpapi: route %q %q conflicts with an existing route", e.HTTP.Method, e.HTTP.Path)
 		}
 	}()
-	mux.HandleFunc(e.HTTP.Method+" "+e.HTTP.Path, makeHTTPHandler(e, defaults))
+	mux.HandleFunc(e.HTTP.Method+" "+e.HTTP.Path, makeHTTPHandler(e, defaults, meta))
 	return nil
 }
 
-func makeHTTPHandler(e *spec.Entry, defaults map[string]string) http.HandlerFunc {
+func makeHTTPHandler(e *spec.Entry, defaults map[string]string, meta ResponseMeta) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		// 路由级上下文头：命令名先写（耗时在 Invoke 之后补）。
+		if meta.autoHeaders() {
+			w.Header().Set(HeaderCommand, e.Name)
+		}
 		m := map[string]any{}
 		// 铺底：HTTP 专属默认值（全局默认由 Invoke 补齐）。
 		for k, v := range e.HTTPDefaults() {
@@ -147,8 +195,11 @@ func makeHTTPHandler(e *spec.Entry, defaults map[string]string) http.HandlerFunc
 			}
 		}
 		out, err := e.Invoke(r.Context(), m)
+		if meta.autoHeaders() {
+			w.Header().Set(HeaderDuration, strconv.FormatInt(time.Since(start).Milliseconds(), 10))
+		}
 		if err != nil {
-			writeError(w, errs.HTTPStatus(errs.Classify(err)), causeMessage(err))
+			writeErr(w, err)
 			return
 		}
 		if e.HTTP.Output != nil {
@@ -177,20 +228,28 @@ func isStringSlice(f *spec.FieldMeta) bool {
 	return f.Kind == reflect.Slice && f.Type != reflect.TypeOf([]byte(nil))
 }
 
-func causeMessage(err error) string {
-	if cause := errs.Cause(err); cause != nil {
-		return cause.Error()
-	}
-	return err.Error()
+// writeErr 渲染一个命令错误：状态码取显式覆盖 > Kind 派生，错误体用三通道
+// 共享的 errs.Body——扁平 error 字符串与 v0.4.2 之前逐字节一致，kind/code/
+// detail 为增补键（xyz-spec §8.3）。
+func writeErr(w http.ResponseWriter, err error) {
+	writeErrorBody(w, errs.StatusFor(err), errs.ErrorBody(err))
 }
 
+// writeError 渲染一个传输层字符串错误（鉴权失败、坏 JSON 体等）：状态码显式
+// 给定，错误体只带扁平 error 键。
 func writeError(w http.ResponseWriter, status int, msg string) {
 	if msg == "" {
 		msg = http.StatusText(status)
 	}
+	writeErrorBody(w, status, errs.Body{Error: msg})
+}
+
+// writeErrorBody 以紧凑 JSON 写错误体（不缩进，与历史错误响应逐字节兼容；
+// 成功响应体才缩进）。
+func writeErrorBody(w http.ResponseWriter, status int, body errs.Body) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // registerOpenAPI 暴露一份由同源 InputSchema 生成的 OpenAPI 3 文档。
@@ -206,10 +265,15 @@ func HandlerFor(e *spec.Entry) http.HandlerFunc {
 
 // HandlerForWith 是带通道级默认参数的 HandlerFor。
 func HandlerForWith(e *spec.Entry, defaults map[string]string) http.HandlerFunc {
+	return HandlerForWithMeta(e, defaults, ResponseMeta{})
+}
+
+// HandlerForWithMeta 是带通道级默认参数与服务器上下文头的 HandlerFor。
+func HandlerForWithMeta(e *spec.Entry, defaults map[string]string, meta ResponseMeta) http.HandlerFunc {
 	if e == nil {
 		return func(w http.ResponseWriter, _ *http.Request) {
 			writeError(w, http.StatusNotFound, "not found")
 		}
 	}
-	return makeHTTPHandler(e, defaults)
+	return makeHTTPHandler(e, defaults, meta)
 }

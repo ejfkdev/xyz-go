@@ -87,6 +87,7 @@ func (a *App) printHelp(node *cmdNode, bin string) {
 	}
 	fmt.Fprintln(w, "\n"+langx.T("help.global_flags"))
 	printRows(w, [][2]string{
+		{"--format <fmt>", langx.T("help.format_flag")},
 		{"--json", langx.T("help.json_flag")},
 		{"-v, --version", langx.T("help.version_flag")},
 		{"-h, --help", langx.T("help.help_flag")},

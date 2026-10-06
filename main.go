@@ -47,7 +47,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -149,7 +148,7 @@ func runInternal(reg *registry.Registry, args []string, cfg Config, composable b
 			break // "--" 之后是位置参数，不再识别 -v
 		}
 		if a == "-v" || a == "--version" {
-			fmt.Fprintf(os.Stdout, "%s version %s\n", filepath.Base(os.Args[0]), Version)
+			fmt.Fprintf(os.Stdout, "%s version %s\n", cfg.resolvedName(), cfg.resolvedVersion())
 			return 0, true
 		}
 	}
@@ -212,7 +211,7 @@ func runInternal(reg *registry.Registry, args []string, cfg Config, composable b
 			// 宿主兜底：静默交还，不做任何输出。
 			return 0, false
 		}
-		return runCLI(ctx, reg, args), true
+			return runCLI(ctx, reg, args, cfg), true
 	}
 }
 

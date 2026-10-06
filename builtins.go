@@ -2,6 +2,7 @@ package xyz
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -126,6 +127,38 @@ func stripXYZFlags(args []string, cfg *Config) ([]string, error) {
 			}
 		case strings.HasPrefix(a, "--xyz.cors="):
 			cfg.CORSOrigins = mergeTokens(cfg.CORSOrigins, strings.TrimPrefix(a, "--xyz.cors="))
+		case a == "--xyz.header":
+			if v, err := value(); err != nil {
+				return nil, err
+			} else if err := mergeHeaderFlag(cfg, v); err != nil {
+				return nil, err
+			}
+		case strings.HasPrefix(a, "--xyz.header="):
+			if err := mergeHeaderFlag(cfg, strings.TrimPrefix(a, "--xyz.header=")); err != nil {
+				return nil, err
+			}
+		case a == "--xyz.no-server-headers":
+			cfg.NoServerHeaders = true
+		case strings.HasPrefix(a, "--xyz.no-server-headers="):
+			b, err := strconv.ParseBool(strings.TrimPrefix(a, "--xyz.no-server-headers="))
+			if err != nil {
+				return nil, fmt.Errorf("invalid --xyz.no-server-headers: %w", err)
+			}
+			cfg.NoServerHeaders = b
+		case a == "--xyz.format":
+			if v, err := value(); err != nil {
+				return nil, err
+			} else if !validOutputFormat(v) {
+				return nil, fmt.Errorf("invalid --xyz.format %q (want text|json|jsonl|markdown)", v)
+			} else {
+				cfg.Format = v
+			}
+		case strings.HasPrefix(a, "--xyz.format="):
+			v := strings.TrimPrefix(a, "--xyz.format=")
+			if !validOutputFormat(v) {
+				return nil, fmt.Errorf("invalid --xyz.format %q (want text|json|jsonl|markdown)", v)
+			}
+			cfg.Format = v
 		default:
 			out = append(out, a)
 		}
@@ -150,6 +183,40 @@ func mergeDefaultsFlag(cfg *Config, flag string) error {
 		cfg.ChannelDefaults[strings.TrimSpace(k)] = v
 	}
 	return nil
+}
+
+// mergeHeaderFlag 解析 "k=v,a=b" 形式的自定义响应头写入 ResponseHeaders。
+// 与 --xyz.default 同形：逗号分隔多对，每对首个 "=" 前为键、其余为值
+//（值可含 "="，如 Cookie）。
+func mergeHeaderFlag(cfg *Config, flag string) error {
+	if cfg.ResponseHeaders == nil {
+		cfg.ResponseHeaders = map[string]string{}
+	}
+	for _, pair := range strings.Split(flag, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(pair, "=")
+		if !ok || strings.TrimSpace(k) == "" {
+			return fmt.Errorf("invalid --xyz.header %q (want key=value)", pair)
+		}
+		cfg.ResponseHeaders[strings.TrimSpace(k)] = v
+	}
+	return nil
+}
+
+// validOutputFormat 校验 --xyz.format 的取值。与 cli.ValidFormat 是同一份
+// 取值集（text|json|jsonl|markdown，"" 视为 text）；此处内联一份是为了让
+// 未门控的 builtins.go 不必 import cli——否则 -tags nocli 裁剪会把 cli 包
+// 重新链进来。两处若增删格式须同步。
+func validOutputFormat(f string) bool {
+	switch f {
+	case "", "text", "json", "jsonl", "markdown":
+		return true
+	default:
+		return false
+	}
 }
 
 // parseServeArgs 解析 serve 模式的裸名 flag（--addr/--bearer/--timeout/

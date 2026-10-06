@@ -1,6 +1,8 @@
 package xyz
 
 import (
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/ejfkdev/xyz-go/logx"
@@ -72,4 +74,52 @@ type Config struct {
 	// 即使命令表被隐藏也打印）。空 = 不插入。
 	HelpBefore string
 	HelpAfter  string
+
+	// Version 是*应用程序*（用 xyz 构建的程序）的版本，报告于 HTTP 的
+	// X-App-Version 响应头、MCP 的 serverInfo.version 与 _meta.xyz.app_version、
+	// 以及 CLI 的 -v/--version。空则回退到包级 xyz.Version（可用
+	// -ldflags "-X github.com/ejfkdev/xyz-go.Version=v1.2.3" 注入）。
+	// 这与 xyz 库自身的版本（xyz.SDKVersion，报告于 X-XYZ-Version）是两回事。
+	Version string
+
+	// Name 是应用程序名，报告于 HTTP 的 X-App-Name 响应头与 MCP 的
+	// serverInfo.name / _meta.xyz.app_name。空则回退到二进制basename。
+	Name string
+
+	// Format 是 CLI 的默认输出格式（text|json|jsonl|markdown），等价于在
+	// 命令行传 --xyz.format=<值>；空的 Format 由命令行的 --xyz.format /
+	// 裸 --format / --json 覆盖，都没有则为 text。仅作用于 CLI 通道。
+	Format string
+
+	// ResponseHeaders 是附加到每个 HTTP 响应的自定义静态头（键值原样写入，
+	// 不做规范化）；MCP 侧作为每次调用结果 _meta.xyz.headers 透出。
+	// 命令行：--xyz.header k=v（可重复，或逗号分隔多对）。
+	ResponseHeaders map[string]string
+
+	// NoServerHeaders 置 true 关闭自动服务器上下文头：HTTP 的
+	// X-App-Name/X-App-Version/X-XYZ-Version/X-XYZ-Command/X-XYZ-Duration-Ms
+	// 与 MCP 结果 _meta 里的 xyz 上下文都不再写。ResponseHeaders 自定义头
+	// 不受影响（它们是显式配置）。
+	NoServerHeaders bool
+}
+
+// resolvedVersion 返回应用程序版本：Config.Version 覆盖优先，否则回退到
+// 包级 xyz.Version（应用经 -ldflags 注入的版本槽）。
+func (c Config) resolvedVersion() string {
+	if c.Version != "" {
+		return c.Version
+	}
+	return Version
+}
+
+// resolvedName 返回应用程序名：Config.Name 覆盖优先，否则回退到二进制
+// basename（与 CLI -v、MCP serverInfo 的默认身份一致）。
+func (c Config) resolvedName() string {
+	if c.Name != "" {
+		return c.Name
+	}
+	if base := filepath.Base(os.Args[0]); base != "" && base != "." && base != "/" {
+		return base
+	}
+	return "app"
 }

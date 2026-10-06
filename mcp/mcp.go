@@ -55,10 +55,17 @@ var DefaultVersions = []string{
 // Options configures the MCP frontend. The zero value serves every protocol
 // version the SDK knows.
 type Options struct {
-	// Name and Version identify this server implementation to clients.
+	// Name and Version identify *the application* (this MCP server) to
+	// clients: they become serverInfo.name / serverInfo.version and the
+	// _meta.xyz.app_name / app_version on every call result.
 	// Defaults: binary base name and "0.0.0".
 	Name    string
 	Version string
+
+	// SDKVersion is the xyz library's own version, reported as
+	// _meta.xyz.sdk_version (and the X-XYZ-Version header on the http/sse
+	// transports). Distinct from Version, which is the application's.
+	SDKVersion string
 
 	// Versions restricts which protocol versions this server stands behind,
 	// subset of DefaultVersions. Order is the preference order used during
@@ -92,6 +99,14 @@ type Options struct {
 
 	// Defaults 是通道级默认参数（--default k=v）：调用未显式提供时补上。
 	Defaults map[string]string
+
+	// ResponseHeaders 是随每次调用结果 _meta.xyz.headers 透出的自定义上下文
+	//（与 HTTP 的 ResponseHeaders 同源）。空则不写 headers 键。
+	ResponseHeaders map[string]string
+
+	// NoServerMeta 置 true 时不写结果 _meta 里的 xyz 服务器上下文
+	//（版本/命令/耗时/自定义头/错误上下文）。serverInfo.version 不受影响。
+	NoServerMeta bool
 }
 
 // Server builds a ready sdkmcp.Server with one tool per registered command.
@@ -127,7 +142,7 @@ func Server(reg *registry.Registry, opts Options) (*sdkmcp.Server, error) {
 				tool.OutputSchema = json.RawMessage(outJSON)
 			}
 		}
-		server.AddTool(tool, makeHandler(e, allowed, opts.Defaults))
+		server.AddTool(tool, makeHandler(e, allowed, opts, name, version))
 	}
 	return server, nil
 }
@@ -201,12 +216,12 @@ func runWithOptions(ctx context.Context, reg *registry.Registry, args []string, 
 		return 0
 	case "sse":
 		handler := versionGate(sdkmcp.NewSSEHandler(func(*http.Request) *sdkmcp.Server { return server }, &sdkmcp.SSEOptions{}), opts.Versions, allowed)
-		return serveHTTP(ctx, opts.Addr, httpapi.CORS(opts.CORSOrigins, httpapi.Bearer(opts.BearerTokens, handler)))
+		return serveHTTP(ctx, opts.Addr, httpapi.ServerHeaders(opts.responseMeta(), httpapi.CORS(opts.CORSOrigins, httpapi.Bearer(opts.BearerTokens, handler))))
 	case "http":
 		inner := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server },
 			&sdkmcp.StreamableHTTPOptions{JSONResponse: opts.JSONResponse, Stateless: opts.Stateless, SessionTimeout: opts.SessionTimeout})
 		logx.Debugf("streamable HTTP: sessionTimeout=%s cors=%d stateless=%v", opts.SessionTimeout, len(opts.CORSOrigins), opts.Stateless)
-		return serveHTTP(ctx, opts.Addr, httpapi.CORS(opts.CORSOrigins, httpapi.Bearer(opts.BearerTokens, versionGate(inner, opts.Versions, allowed))))
+		return serveHTTP(ctx, opts.Addr, httpapi.ServerHeaders(opts.responseMeta(), httpapi.CORS(opts.CORSOrigins, httpapi.Bearer(opts.BearerTokens, versionGate(inner, opts.Versions, allowed)))))
 	default:
 		fmt.Fprintf(os.Stderr, "mcp: unknown transport %q (want stdio|sse|http)\n", transport)
 		return 2
@@ -221,6 +236,20 @@ func HTTPHandler(reg *registry.Registry, opts Options) (http.Handler, error) {
 	h := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server },
 		&sdkmcp.StreamableHTTPOptions{JSONResponse: opts.JSONResponse, Stateless: opts.Stateless, SessionTimeout: opts.SessionTimeout})
 	return httpapi.CORS(opts.CORSOrigins, httpapi.Bearer(opts.BearerTokens, h)), nil
+}
+
+// responseMeta 把 Options 折成 HTTP 服务器上下文头，供 mcp http/sse 独立
+// 传输模式使用（serve 模式挂载的 /mcp 由根派发器最外层的 ServerHeaders 统一
+// 覆盖，不在此重复）。应用身份取 implName 的解析结果，与 serverInfo 一致。
+func (opts Options) responseMeta() httpapi.ResponseMeta {
+	name, version := implName(opts)
+	return httpapi.ResponseMeta{
+		AppName:       name,
+		AppVersion:    version,
+		SDKVersion:    opts.SDKVersion,
+		Headers:       opts.ResponseHeaders,
+		NoAutoHeaders: opts.NoServerMeta,
+	}
 }
 
 // mergeDefaults 把预设选项（如根派发器传入的 --xyz.bearer）作为默认值；

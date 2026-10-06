@@ -33,11 +33,12 @@ import (
 var Version = "dev"
 
 type App struct {
-	reg    *registry.Registry
-	root   *cmdNode
-	out    io.Writer
-	errOut io.Writer
-	mws    []ExecFunc
+	reg           *registry.Registry
+	root          *cmdNode
+	out           io.Writer
+	errOut        io.Writer
+	mws           []ExecFunc
+	defaultFormat string // 默认输出格式（来自 --xyz.format，经 Options.Format 注入）；""=text
 }
 
 // Options configures frontend-level behavior for embedding (e.g. mounting
@@ -45,15 +46,22 @@ type App struct {
 type Options struct {
 	Out    io.Writer // 命令结果的输出目标（默认 os.Stdout）
 	ErrOut io.Writer // 错误与帮助的输出目标（默认 os.Stderr）
+	// Format 是默认输出格式（text|json|jsonl|markdown，""=text），通常由根
+	// 派发器把 --xyz.format 注入到这里。命令行的裸 --format/--json 优先于它。
+	Format string
 }
 
 // NewWithOptions is New with frontend options; nil writers keep the defaults.
 func NewWithOptions(reg *registry.Registry, opts Options) (*App, error) {
+	if !ValidFormat(opts.Format) {
+		return nil, fmt.Errorf("cli: invalid default format %q (want text|json|jsonl|markdown)", opts.Format)
+	}
 	a, err := New(reg)
 	if err != nil {
 		return nil, err
 	}
 	a.SetOutput(opts.Out, opts.ErrOut)
+	a.defaultFormat = opts.Format
 	return a, nil
 }
 
@@ -73,8 +81,12 @@ func (a *App) SetOutput(out, errOut io.Writer) {
 type ExecContext struct {
 	Path  string      // 点分注册名，如 user.add
 	Entry *spec.Entry // 命令元数据（Hints、InputSchema、OutputSchema）
-	JSON  bool        // --json 是否生效（未调用 next 时自行渲染可参考）
-	Out   io.Writer   // 结果的输出目标
+	JSON  bool        // 等价 Format==json（向后兼容；判断机器模式请优先用 Format）
+	// Format 是本次执行的 --format 取值（"" 等价 text）。机器模式
+	//（json/jsonl）下错误也以 JSON 写 stderr；显式格式绕过命令的
+	// CLIOutputFunc，text 才进入 Output > 信封投影 > Render 链。
+	Format string
+	Out    io.Writer // 结果的输出目标
 }
 
 // ExecFunc is an Execute middleware around leaf execution: args is the
@@ -125,26 +137,48 @@ func (a *App) RunContext(ctx context.Context, args []string) int {
 			return 0
 		}
 	}
-	jsonOut := false
+	// 输出格式：默认取自 --xyz.format（经 Options.Format 注入 a.defaultFormat），
+	// 命令行裸 --format/--json 覆盖之。冲突感知（xyz-spec §10.7）：裸形式仅在
+	// 目标命令*没有*定义同名 flag 时才作全局格式；若命令自有 format/json 字段，
+	// 裸标志让位给命令（全局格式只认全称 --xyz.format）。
+	format := a.defaultFormat
+	target := a.resolveTargetNode(args)
+	formatConflict := nodeHasFlagLong(target, "format")
+	jsonConflict := nodeHasFlagLong(target, "json")
 	filtered := make([]string, 0, len(args))
 	pastDoubleDash := false
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if pastDoubleDash {
 			filtered = append(filtered, arg)
 			continue
 		}
-		switch arg {
-		case "--":
+		switch {
+		case arg == "--":
 			pastDoubleDash = true
 			filtered = append(filtered, arg)
-		case "--json":
-			jsonOut = true
+		case arg == "--json" && !jsonConflict:
+			format = FormatJSON
+		case arg == "--format" && !formatConflict:
+			if i+1 >= len(args) {
+				fmt.Fprintln(a.errOut, "xyz: --format needs an argument (text|json|jsonl|markdown)")
+				return 2
+			}
+			i++
+			format = args[i]
+		case strings.HasPrefix(arg, "--format=") && !formatConflict:
+			format = strings.TrimPrefix(arg, "--format=")
 		default:
+			// 含冲突时未消费的裸 --format/--json：原样留给命令自己的 flag 解析。
 			filtered = append(filtered, arg)
 		}
 	}
-	if err := a.execute(ctx, a.root, filtered, jsonOut, bin); err != nil {
-		fmt.Fprintln(a.errOut, err)
+	if !ValidFormat(format) {
+		fmt.Fprintf(a.errOut, "xyz: invalid output format %q (want text|json|jsonl|markdown)\n", format)
+		return 2
+	}
+	if err := a.execute(ctx, a.root, filtered, format, bin); err != nil {
+		a.renderError(err, format)
 		return exitCode(err)
 	}
 	return 0
@@ -165,6 +199,73 @@ func RunContext(ctx context.Context, reg *registry.Registry, args []string) int 
 	return a.RunContext(ctx, args)
 }
 
+// RunWithOptions 是带前端选项（默认输出格式等）的 Run，供根派发器把
+// --xyz.format 注入 CLI 前端。
+func RunWithOptions(reg *registry.Registry, args []string, opts Options) int {
+	return RunContextWithOptions(context.Background(), reg, args, opts)
+}
+
+// RunContextWithOptions 是 RunWithOptions 的显式 context 形态。
+func RunContextWithOptions(ctx context.Context, reg *registry.Registry, args []string, opts Options) int {
+	a, err := NewWithOptions(reg, opts)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	return a.RunContext(ctx, args)
+}
+
+// resolveTargetNode 沿命令树下降，找到裸 --format/--json 冲突检测的目标节点：
+// 透明跳过全局格式标志（--json、--format 及其值、--format=v），遇到其它 flag
+// 或 `--` 停止下降，未匹配段触发默认子命令回退。仅用于判定目标命令是否自有
+// 同名 flag，不消费参数、不报错。
+func (a *App) resolveTargetNode(args []string) *cmdNode {
+	node := a.root
+	for i := 0; i < len(args); i++ {
+		t := args[i]
+		if t == "--" {
+			break
+		}
+		if t == "--json" || strings.HasPrefix(t, "--format=") {
+			continue
+		}
+		if t == "--format" {
+			i++ // 连同其值一起跳过
+			continue
+		}
+		if strings.HasPrefix(t, "-") {
+			break // 其它 flag：命令路径到此为止
+		}
+		if child, ok := node.children[t]; ok {
+			node = child
+			continue
+		}
+		if !node.leaf && node.dflt != nil {
+			node = node.dflt
+			if child, ok := node.children[t]; ok {
+				node = child
+				continue
+			}
+		}
+		break // t 是位置参数（或未知段）：路径结束
+	}
+	return node
+}
+
+// nodeHasFlagLong 报告节点是否定义了指定长名的 flag（用于裸全局标志的冲突
+// 让位判定）。
+func nodeHasFlagLong(node *cmdNode, long string) bool {
+	if node == nil {
+		return false
+	}
+	for i := range node.defs {
+		if node.defs[i].long == long {
+			return true
+		}
+	}
+	return false
+}
+
 func exitCode(err error) int {
 	var ce *errs.CodedError
 	if stderrors.As(err, &ce) {
@@ -173,7 +274,24 @@ func exitCode(err error) int {
 	return 2 // 用法/flag 解析错误
 }
 
-func (a *App) execute(ctx context.Context, node *cmdNode, args []string, jsonOut bool, bin string) error {
+// renderError 把命令错误写到 errOut：机器模式（json/jsonl）下输出三通道共享
+// 的富化错误体（errs.Body：扁平 error 字符串 + kind/code/detail，与 HTTP
+// 错误体同款），text 模式输出人类可读的错误行。stdout 始终只承载数据，
+// 错误一律走 stderr（xyz-spec §8.3/§10.5）。
+func (a *App) renderError(err error, format string) {
+	switch format {
+	case FormatJSON, FormatJSONL:
+		enc := json.NewEncoder(a.errOut)
+		if format == FormatJSON {
+			enc.SetIndent("", "  ")
+		}
+		_ = enc.Encode(errs.ErrorBody(err))
+	default:
+		fmt.Fprintln(a.errOut, err)
+	}
+}
+
+func (a *App) execute(ctx context.Context, node *cmdNode, args []string, format string, bin string) error {
 	rest := args
 	for len(rest) > 0 {
 		child, ok := node.children[rest[0]]
@@ -239,7 +357,7 @@ func (a *App) execute(ctx context.Context, node *cmdNode, args []string, jsonOut
 			m[f.JSONName] = pos[i]
 		}
 	}
-	ec := &ExecContext{Path: node.path, Entry: node.entry, JSON: jsonOut, Out: a.out}
+	ec := &ExecContext{Path: node.path, Entry: node.entry, JSON: format == FormatJSON, Format: format, Out: a.out}
 	var chain ExecFunc = func(ctx context.Context, ec *ExecContext, args map[string]any, _ func() error) error {
 		out, err := ec.Entry.Invoke(ctx, args)
 		if err != nil {
@@ -249,18 +367,26 @@ func (a *App) execute(ctx context.Context, node *cmdNode, args []string, jsonOut
 		if ec.Entry.CLI.Daemon {
 			return nil
 		}
-		if ec.JSON {
+		// 显式 --format（json/jsonl/markdown）绕过命令的 CLIOutputFunc；
+		// text（默认）才进入 Output > §12.7 信封投影 > Render 链（§10.6）。
+		switch ec.Format {
+		case FormatJSON:
 			enc := json.NewEncoder(ec.Out)
 			enc.SetIndent("", "  ")
 			return enc.Encode(out)
+		case FormatJSONL:
+			return RenderJSONL(ec.Out, out)
+		case FormatMarkdown:
+			return RenderMarkdown(ec.Out, out)
+		default:
+			if ec.Entry.CLI.Output != nil {
+				return ec.Entry.CLI.Output(ec.Out, out)
+			}
+			if handled, err := projectBlocks(ec.Out, out); handled || err != nil {
+				return err
+			}
+			return Render(ec.Out, out)
 		}
-		if ec.Entry.CLI.Output != nil {
-			return ec.Entry.CLI.Output(ec.Out, out)
-		}
-		if handled, err := projectBlocks(ec.Out, out); handled || err != nil {
-			return err
-		}
-		return Render(ec.Out, out)
 	}
 	for i := len(a.mws) - 1; i >= 0; i-- {
 		mw := a.mws[i]

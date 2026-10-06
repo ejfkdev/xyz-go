@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -17,7 +18,43 @@ import (
 	"github.com/ejfkdev/xyz-go/spec"
 )
 
-func makeHandler(e *spec.Entry, allowed map[string]bool, defaults map[string]string) func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+func makeHandler(e *spec.Entry, allowed map[string]bool, opts Options, appName, appVersion string) func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+	defaults := opts.Defaults
+	sdkVersion := opts.SDKVersion
+	headers := opts.ResponseHeaders
+	disabled := opts.NoServerMeta
+	command := e.Name
+	// buildMeta 闭包捕获每个工具恒定的身份字段，调用点只传耗时与可选错误体。
+	// 构造一次调用结果的 _meta.xyz 服务器上下文（xyz-spec §12.8），对齐 HTTP
+	// 的 X-App-*/X-XYZ-* 头：应用身份 + xyz 库版本 + 命令 + 耗时 + 自定义头，
+	// errBody 非 nil 时再并入 error 上下文（kind/code/detail），让 MCP 客户端
+	// 无需解析文本即可按领域语义分支。disabled 时返回 nil（不写 _meta.xyz）。
+	buildMeta := func(dur time.Duration, errBody *errs.Body) sdkmcp.Meta {
+		if disabled {
+			return nil
+		}
+		xyz := map[string]any{
+			"app_name":    appName,
+			"app_version": appVersion,
+			"sdk_version": sdkVersion,
+			"command":     command,
+			"duration_ms": dur.Milliseconds(),
+		}
+		if len(headers) > 0 {
+			xyz["headers"] = headers
+		}
+		if errBody != nil {
+			em := map[string]any{"kind": string(errBody.Kind)}
+			if errBody.Code != "" {
+				em["code"] = errBody.Code
+			}
+			if len(errBody.Detail) > 0 {
+				em["detail"] = errBody.Detail
+			}
+			xyz["error"] = em
+		}
+		return sdkmcp.Meta{"xyz": xyz}
+	}
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 		if pv := req.ProtocolVersion(); pv != "" && !allowed[pv] {
 			return nil, fmt.Errorf("tool %q: protocol version %q is not enabled on this server", e.Name, pv)
@@ -41,13 +78,17 @@ func makeHandler(e *spec.Entry, allowed map[string]bool, defaults map[string]str
 				args[k] = v
 			}
 		}
+		start := time.Now()
 		out, err := e.Invoke(ctx, args)
+		dur := time.Since(start)
 		if err != nil {
 			msg := err
 			if cause := errs.Cause(err); cause != nil {
 				msg = cause
 			}
+			body := errs.ErrorBody(err)
 			return &sdkmcp.CallToolResult{
+				Meta:    buildMeta(dur, &body),
 				IsError: true,
 				Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: msg.Error()}},
 			}, nil
@@ -57,10 +98,12 @@ func makeHandler(e *spec.Entry, allowed map[string]bool, defaults map[string]str
 				res, err := blockCallResult(env, toStructured(out))
 				if err != nil {
 					return &sdkmcp.CallToolResult{
+						Meta:    buildMeta(dur, nil),
 						IsError: true,
 						Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
 					}, nil
 				}
+				res.Meta = buildMeta(dur, nil)
 				return res, nil
 			}
 		}
@@ -70,11 +113,13 @@ func makeHandler(e *spec.Entry, allowed map[string]bool, defaults map[string]str
 				return nil, err
 			}
 			return &sdkmcp.CallToolResult{
+				Meta:              buildMeta(dur, nil),
 				Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: buf.String()}},
 				StructuredContent: toStructured(out),
 			}, nil
 		}
 		return &sdkmcp.CallToolResult{
+			Meta:              buildMeta(dur, nil),
 			Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: renderText(out)}},
 			StructuredContent: toStructured(out),
 		}, nil
