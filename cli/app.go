@@ -25,6 +25,7 @@ import (
 	"github.com/ejfkdev/xyz-go/langx"
 	"github.com/ejfkdev/xyz-go/registry"
 	"github.com/ejfkdev/xyz-go/spec"
+	"github.com/ejfkdev/xyz-go/termx"
 )
 
 // Version is the version reported by the CLI frontend's -v/--version flag
@@ -93,21 +94,13 @@ func NewWithOptions(reg *registry.Registry, opts Options) (*App, error) {
 }
 
 // isInteractive 报告输出目标是否为交互式终端（TTY）。override 非 nil 时直接
-// 采用（测试/嵌入）；否则仅当 w 是 *os.File 且为字符设备时判为交互式——
-// bytes.Buffer、管道、重定向文件一律非交互式。这是格式轴与（将来的）样式/
-// 彩色轴共用的同一个 TTY 探测（xyz-spec §10.7）。
+// 采用（测试/嵌入）；否则委托 termx.Interactive（字符设备判定）——与根包
+// xyz.Interactive 及将来的样式轴共用同一探测（xyz-spec §10.7a）。
 func isInteractive(w io.Writer, override *bool) bool {
 	if override != nil {
 		return *override
 	}
-	if f, ok := w.(*os.File); ok {
-		fi, err := f.Stat()
-		if err != nil {
-			return false
-		}
-		return fi.Mode()&os.ModeCharDevice != 0
-	}
-	return false
+	return termx.Interactive(w)
 }
 
 // SetOutput redirects the frontend's output streams; nil keeps the current

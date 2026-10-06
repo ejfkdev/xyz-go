@@ -18,9 +18,10 @@ import (
 // httpFrontend 标记本编译变体是否包含 HTTP 前端（用于总览标注）。
 const httpFrontend = true
 
-// runServe 启动 HTTP 前端：REST 路由 + /openapi.json；MCP 前端被编译时再把
-// 流式 HTTP 工具端点挂在 /mcp（nomcp 构建下自动消失）。
-func runServe(ctx context.Context, reg *registry.Registry, args []string, cfg Config) int {
+// runServe 启动 HTTP 前端：REST 路由 + /openapi.json。mountMCP 为真（serve
+// 模式且未禁用 MCP）时再把流式 HTTP 工具端点挂在 /mcp；http 模式传 false =
+// 单独 HTTP 接口，不挂 /mcp（nomcp 构建下 mcpHTTPHandler 自动返回 false）。
+func runServe(ctx context.Context, reg *registry.Registry, args []string, cfg Config, mountMCP bool) int {
 	cfg = parseServeArgs(args, cfg)
 	meta := httpapi.ResponseMeta{
 		AppName:       cfg.resolvedName(),
@@ -35,12 +36,14 @@ func runServe(ctx context.Context, reg *registry.Registry, args []string, cfg Co
 		return 2
 	}
 	mcpNote := ""
-	if mh, ok := mcpHTTPHandler(reg, cfg); ok {
-		outer := http.NewServeMux()
-		outer.Handle("/mcp", mh)
-		outer.Handle("/", handler)
-		handler = outer
-		mcpNote = " + /mcp"
+	if mountMCP {
+		if mh, ok := mcpHTTPHandler(reg, cfg); ok {
+			outer := http.NewServeMux()
+			outer.Handle("/mcp", mh)
+			outer.Handle("/", handler)
+			handler = outer
+			mcpNote = " + /mcp"
+		}
 	}
 	if len(cfg.CORSOrigins) > 0 {
 		logx.Debugf("%s", langx.Tf("log.cors_on", fmt.Sprint(cfg.CORSOrigins)))

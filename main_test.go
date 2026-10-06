@@ -3,6 +3,7 @@ package xyz
 import (
 	"bytes"
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,14 @@ import (
 	"github.com/ejfkdev/xyz-go/registry"
 	"github.com/ejfkdev/xyz-go/spec"
 )
+
+// testOverview 用默认模式词与「无遮蔽」调用 printOverview，简化测试调用。
+func testOverview(w io.Writer, reg *registry.Registry, before, after string) {
+	printOverview(w, reg,
+		modes{serve: "serve", http: "http", mcp: "mcp", help: "help"},
+		map[string]bool{},
+		Config{HelpBefore: before, HelpAfter: after})
+}
 
 type tArgs struct {
 	S string `json:"s"`
@@ -76,11 +85,34 @@ func TestRunInvalidModeWords(t *testing.T) {
 	}
 }
 
-func TestRunReservedName(t *testing.T) {
-	for _, name := range []string{"serve.x", "mcp.up", "help.me"} {
-		if got := Run(testReg(t, name), []string{"whatever"}); got != 2 {
-			t.Fatalf("Run with reserved name %q = %d, want 2", name, got)
-		}
+func TestModeShadowing(t *testing.T) {
+	// 用户命令顶层段与模式词冲突时不再注册期拒绝，而是遮蔽裸词：
+	// 裸词让位给用户命令，内建模式仍经 xyz.<词> 恒可用。
+	reg := testReg(t, "serve.x")
+	m, err := resolveModes(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shadowed := shadowedModes(reg, m)
+	if !shadowed[m.serve] {
+		t.Fatalf("serve should be shadowed by user command serve.x")
+	}
+	if kind := matchMode("serve", m, shadowed); kind != modeNone {
+		t.Fatalf("bare serve should yield to the user command, got kind %v", kind)
+	}
+	if kind := matchMode("xyz.serve", m, shadowed); kind != modeServe {
+		t.Fatalf("xyz.serve must always reach the built-in, got kind %v", kind)
+	}
+	// 未遮蔽的模式裸词照常命中。
+	if kind := matchMode("mcp", m, shadowed); kind != modeMCP {
+		t.Fatalf("unshadowed mcp bare word should match, got %v", kind)
+	}
+	if kind := matchMode("http", m, shadowed); kind != modeHTTP {
+		t.Fatalf("unshadowed http bare word should match, got %v", kind)
+	}
+	// 注册保留名不再报错：Run 不因保留名返回 2。
+	if got := Run(reg, []string{"whatever"}); got == 2 {
+		t.Fatalf("registering a mode-word command must not be rejected (exit 2)")
 	}
 }
 
@@ -204,13 +236,13 @@ func TestOverviewLanguage(t *testing.T) {
 	reg := testReg(t, "a.b")
 	langx.Set(langx.En, nil)
 	var en bytes.Buffer
-	printOverview(&en, reg, "serve", "mcp", Capabilities{}, "", "")
+	testOverview(&en, reg, "", "")
 	if !strings.Contains(en.String(), "Usage (the mode is detected") {
 		t.Fatalf("en overview missing: %q", en.String())
 	}
 	langx.Set(langx.ZhCn, nil)
 	var zh bytes.Buffer
-	printOverview(&zh, reg, "serve", "mcp", Capabilities{}, "", "")
+	testOverview(&zh, reg, "", "")
 	if !strings.Contains(zh.String(), "用法（模式由程序自动判断") {
 		t.Fatalf("zh overview missing: %q", zh.String())
 	}
@@ -218,7 +250,7 @@ func TestOverviewLanguage(t *testing.T) {
 	// 覆盖表生效
 	langx.Set(langx.En, map[string]string{"overview.commands": "Commands!:"})
 	var ov bytes.Buffer
-	printOverview(&ov, reg, "serve", "mcp", Capabilities{}, "", "")
+	testOverview(&ov, reg, "", "")
 	if !strings.Contains(ov.String(), "Commands!:") {
 		t.Fatalf("overrides not applied: %q", ov.String())
 	}
@@ -304,7 +336,7 @@ func TestPrintOverviewHelpBlocks(t *testing.T) {
 	var buf bytes.Buffer
 	before := "myapp v1.2.3 — do the thing\nhttps://github.com/me/myapp"
 	after := "Need help? https://github.com/me/myapp#faq"
-	printOverview(&buf, reg, "serve", "mcp", Capabilities{}, before, after)
+	testOverview(&buf, reg, before, after)
 	out := buf.String()
 	if !strings.HasPrefix(out, before+"\n") {
 		t.Fatalf("before block not at top: %q", out)
@@ -314,21 +346,21 @@ func TestPrintOverviewHelpBlocks(t *testing.T) {
 	}
 	// 空块零变化：与不传块逐字节一致
 	var base, withEmpty bytes.Buffer
-	printOverview(&base, reg, "serve", "mcp", Capabilities{}, "", "")
-	printOverview(&withEmpty, reg, "serve", "mcp", Capabilities{}, "", "")
+	testOverview(&base, reg, "", "")
+	testOverview(&withEmpty, reg, "", "")
 	if base.String() != withEmpty.String() {
 		t.Fatal("empty blocks must be a no-op")
 	}
 	// 空注册表时 after 仍打印（早退路径）
 	empty := registry.New()
 	var buf2 bytes.Buffer
-	printOverview(&buf2, empty, "serve", "mcp", Capabilities{}, "", "tail")
+	testOverview(&buf2, empty, "", "tail")
 	if !strings.HasSuffix(buf2.String(), "tail\n") {
 		t.Fatalf("after block lost on empty registry: %q", buf2.String())
 	}
 	// 多行保留、结尾换行归一（多个 \n 折叠为一个）
 	var buf3 bytes.Buffer
-	printOverview(&buf3, reg, "serve", "mcp", Capabilities{}, "a\nb\n\n\n", "")
+	testOverview(&buf3, reg, "a\nb\n\n\n", "")
 	if !strings.HasPrefix(buf3.String(), "a\nb\n"+langx.T("overview.usage_line")) {
 		t.Fatalf("block newline normalization wrong: %q", buf3.String())
 	}

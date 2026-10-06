@@ -27,6 +27,7 @@ import (
 	"time"
 
 	errs "github.com/ejfkdev/xyz-go/errors"
+	"github.com/ejfkdev/xyz-go/langx"
 	"github.com/ejfkdev/xyz-go/registry"
 	"github.com/ejfkdev/xyz-go/spec"
 )
@@ -120,6 +121,16 @@ func registerSafe(mux *http.ServeMux, e *spec.Entry, defaults map[string]string,
 func makeHTTPHandler(e *spec.Entry, defaults map[string]string, meta ResponseMeta) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		// 逐请求语言：Accept-Language 命中受支持语言则用之，否则回退进程默认
+		// 语言；写入请求 ctx，供 Invoke 管线、handler 与本地化框架消息共用
+		//（xyz-spec §11.7）。
+		lang := langx.Lang()
+		if al := r.Header.Get("Accept-Language"); al != "" {
+			if l, ok := langx.ParseAcceptLanguage(al); ok {
+				lang = l
+			}
+		}
+		ctx := langx.WithLang(r.Context(), lang)
 		// 路由级上下文头：命令名先写（耗时在 Invoke 之后补）。
 		if meta.autoHeaders() {
 			w.Header().Set(HeaderCommand, e.Name)
@@ -149,8 +160,8 @@ func makeHTTPHandler(e *spec.Entry, defaults map[string]string, meta ResponseMet
 						m[k] = v
 					}
 				case jsonDeclared:
-					// 显式声明 JSON 却解析失败：报 400。
-					writeError(w, http.StatusBadRequest, "invalid JSON body")
+					// 显式声明 JSON 却解析失败：报 400（消息按请求语言本地化）。
+					writeError(w, http.StatusBadRequest, langx.Tctx(ctx, "http.err_invalid_json"))
 					return
 				default:
 					// 非 JSON 声明且解析失败（如表单体）：交给后续 form 绑定，
@@ -194,7 +205,7 @@ func makeHTTPHandler(e *spec.Entry, defaults map[string]string, meta ResponseMet
 				}
 			}
 		}
-		out, err := e.Invoke(r.Context(), m)
+		out, err := e.Invoke(ctx, m)
 		if meta.autoHeaders() {
 			w.Header().Set(HeaderDuration, strconv.FormatInt(time.Since(start).Milliseconds(), 10))
 		}
@@ -271,8 +282,14 @@ func HandlerForWith(e *spec.Entry, defaults map[string]string) http.HandlerFunc 
 // HandlerForWithMeta 是带通道级默认参数与服务器上下文头的 HandlerFor。
 func HandlerForWithMeta(e *spec.Entry, defaults map[string]string, meta ResponseMeta) http.HandlerFunc {
 	if e == nil {
-		return func(w http.ResponseWriter, _ *http.Request) {
-			writeError(w, http.StatusNotFound, "not found")
+		return func(w http.ResponseWriter, r *http.Request) {
+			lang := langx.Lang()
+			if al := r.Header.Get("Accept-Language"); al != "" {
+				if l, ok := langx.ParseAcceptLanguage(al); ok {
+					lang = l
+				}
+			}
+			writeError(w, http.StatusNotFound, langx.Tctx(langx.WithLang(r.Context(), lang), "http.err_not_found"))
 		}
 	}
 	return makeHTTPHandler(e, defaults, meta)

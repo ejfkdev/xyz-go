@@ -15,7 +15,7 @@ import (
 const httpFrontend = false
 
 // runServe 是 -tags nohttp 构建下的兜底：本二进制没有编译进 HTTP 前端。
-func runServe(_ context.Context, _ *registry.Registry, _ []string, _ Config) int {
+func runServe(_ context.Context, _ *registry.Registry, _ []string, _ Config, _ bool) int {
 	fmt.Fprintln(os.Stderr, "xyz: "+langx.Tf("stub.not_compiled", "HTTP")+" (built with -tags nohttp)")
 	return 1
 }

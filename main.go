@@ -129,15 +129,18 @@ func cliKnownTop(reg *registry.Registry, first string) bool {
 }
 
 func runInternal(reg *registry.Registry, args []string, cfg Config, composable bool) (int, bool) {
-	serve, mcpWord, helpWord, err := resolveModes(cfg)
+	m, err := resolveModes(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2, true
 	}
-	if err := checkReserved(reg, serve, mcpWord, helpWord); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	if reg == nil {
+		fmt.Fprintln(os.Stderr, "xyz: nil registry")
 		return 2, true
 	}
+	// 用户命令顶层段与模式词冲突时，裸词让位给用户命令，内建模式仍走
+	// xyz.<词>（xyz-spec §13.1）——不再像旧版那样注册期报错拒绝。
+	shadowed := shadowedModes(reg, m)
 	// 没有任何已注册命令：什么都不做，静默退出 0。
 	if len(reg.Names()) == 0 {
 		return 0, true
@@ -153,10 +156,9 @@ func runInternal(reg *registry.Registry, args []string, cfg Config, composable b
 		}
 	}
 	// 内置参数 --xyz.*：剥离开分发给各前端（帮助/版本不受影响）。
-	var err2 error
-	args, err2 = stripXYZFlags(args, &cfg)
-	if err2 != nil {
-		fmt.Fprintln(os.Stderr, "xyz:", err2)
+	args, err = stripXYZFlags(args, &cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "xyz:", err)
 		return 2, true
 	}
 	if cfg.LogLevel != logx.LevelUnset {
@@ -165,93 +167,216 @@ func runInternal(reg *registry.Registry, args []string, cfg Config, composable b
 	// 界面语言：--xyz.lang（已写回 cfg）> Config.Lang > 环境检测 > 英文。
 	lang := langx.En
 	if cfg.Lang != "" {
-		if l, ok := langx.Parse(cfg.Lang); !ok {
+		l, ok := langx.Parse(cfg.Lang)
+		if !ok {
 			fmt.Fprintf(os.Stderr, "xyz: invalid --xyz.lang %q (want en|zh-CN)\n", cfg.Lang)
 			return 2, true
-		} else {
-			lang = l
 		}
+		lang = l
 	} else {
 		lang = langx.Detect()
 	}
-	langKey := langx.En.String()
-	switch lang {
-	case langx.ZhCn:
-		langKey = "zh-CN"
-	}
-	langx.Set(lang, cfg.Translations[langKey])
-	if len(args) == 0 || args[0] == helpWord || args[0] == "--help" || args[0] == "-h" {
-		printOverview(os.Stdout, reg, serve, mcpWord, cfg.Capabilities, cfg.HelpBefore, cfg.HelpAfter)
+	langx.Set(lang, cfg.Translations[lang.String()])
+
+	// 根总览：无参数，或根级 -h/--help。
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+		printOverview(os.Stdout, reg, m, shadowed, cfg)
 		return 0, true
 	}
-	// 优雅关停：信号取消的 ctx 贯穿 CLI/HTTP/MCP，长任务可在退出前排空。
+	logx.Debugf("dispatch: lead=%s addr=%s tokens=%d timeout=%s cors=%d",
+		args[0], cfg.Addr, len(args), cfg.Timeout, len(cfg.CORSOrigins))
+
+	// 模式派发：xyz.<词> 恒命中；裸词仅未被用户命令遮蔽时命中。
+	if kind := matchMode(args[0], m, shadowed); kind != modeNone {
+		rest := args[1:]
+		if kind == modeHelp {
+			return runHelp(reg, rest, m, shadowed, cfg), true
+		}
+		// serve/http/mcp 的 -h/--help：打印模式帮助而非起服务。
+		if hasHelpFlag(rest) {
+			return printModeHelp(kind, m, cfg), true
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		switch kind {
+		case modeServe:
+			if cfg.Capabilities.NoHTTP {
+				logx.Warnf("%s", langx.Tf("warn.mode_disabled", m.serve, "HTTP"))
+				return 1, true
+			}
+			return runServe(ctx, reg, rest, cfg, !cfg.Capabilities.NoMCP), true
+		case modeHTTP:
+			if cfg.Capabilities.NoHTTP {
+				logx.Warnf("%s", langx.Tf("warn.mode_disabled", m.http, "HTTP"))
+				return 1, true
+			}
+			return runServe(ctx, reg, rest, cfg, false), true // 单独 HTTP：不挂 /mcp
+		case modeMCP:
+			if cfg.Capabilities.NoMCP {
+				logx.Warnf("%s", langx.Tf("warn.mode_disabled", m.mcp, "MCP"))
+				return 1, true
+			}
+			return runMCP(ctx, reg, rest, cfg), true
+		}
+	}
+
+	// CLI 模式（默认）。
+	if cfg.Capabilities.NoCLI {
+		logx.Warnf("%s", langx.Tf("warn.no_cli", m.mcp, m.serve))
+		return 1, true
+	}
+	if composable && !cliKnownTop(reg, args[0]) {
+		// 宿主兜底：静默交还，不做任何输出。
+		return 0, false
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	logx.Debugf("dispatch: mode word=%s addr=%s tokens=%d timeout=%s cors=%d",
-		args[0], cfg.Addr, len(cfg.BearerTokens), cfg.Timeout, len(cfg.CORSOrigins))
-	switch args[0] {
-	case serve:
-		if cfg.Capabilities.NoHTTP {
-			logx.Warnf("%s", langx.Tf("warn.mode_disabled", serve, "HTTP"))
-			return 1, true
-		}
-		return runServe(ctx, reg, args[1:], cfg), true
-	case mcpWord:
-		if cfg.Capabilities.NoMCP {
-			logx.Warnf("%s", langx.Tf("warn.mode_disabled", mcpWord, "MCP"))
-			return 1, true
-		}
-		return runMCP(ctx, reg, args[1:], cfg), true
-	default:
-		if cfg.Capabilities.NoCLI {
-			logx.Warnf("%s", langx.Tf("warn.no_cli", mcpWord, serve))
-			return 1, true
-		}
-		if composable && len(args) > 0 && !cliKnownTop(reg, args[0]) {
-			// 宿主兜底：静默交还，不做任何输出。
-			return 0, false
-		}
-			return runCLI(ctx, reg, args, cfg), true
-	}
+	return runCLI(ctx, reg, args, cfg), true
 }
 
-// resolveModes defaults and validates the mode keywords: they must be
-// plain words (no leading dash) and pairwise distinct.
-func resolveModes(cfg Config) (serve, mcpWord, helpWord string, err error) {
-	serve, mcpWord, helpWord = cfg.Modes.Serve, cfg.Modes.MCP, cfg.Modes.Help
-	if serve == "" {
-		serve = "serve"
+// modes 是解析后的四个模式词。
+type modes struct{ serve, http, mcp, help string }
+
+// modeKind 标识命中的内建模式。
+type modeKind int
+
+const (
+	modeNone modeKind = iota
+	modeServe
+	modeHTTP
+	modeMCP
+	modeHelp
+)
+
+func orDefault(v, def string) string {
+	if v == "" {
+		return def
 	}
-	if mcpWord == "" {
-		mcpWord = "mcp"
+	return v
+}
+
+// resolveModes defaults and validates the mode keywords: they must be plain
+// words (no leading dash, no whitespace) and pairwise distinct.
+func resolveModes(cfg Config) (modes, error) {
+	m := modes{
+		serve: orDefault(cfg.Modes.Serve, "serve"),
+		http:  orDefault(cfg.Modes.HTTP, "http"),
+		mcp:   orDefault(cfg.Modes.MCP, "mcp"),
+		help:  orDefault(cfg.Modes.Help, "help"),
 	}
-	if helpWord == "" {
-		helpWord = "help"
-	}
-	for _, w := range []string{serve, mcpWord, helpWord} {
+	seen := map[string]bool{}
+	for _, w := range []string{m.serve, m.http, m.mcp, m.help} {
 		if strings.HasPrefix(w, "-") || strings.ContainsAny(w, " \t") {
-			return "", "", "", fmt.Errorf("xyz: invalid mode word %q (no leading dash, no whitespace)", w)
+			return m, fmt.Errorf("xyz: invalid mode word %q (no leading dash, no whitespace)", w)
 		}
+		if seen[w] {
+			return m, fmt.Errorf("xyz: mode words must be pairwise distinct (duplicate %q)", w)
+		}
+		seen[w] = true
 	}
-	if serve == mcpWord || serve == helpWord || mcpWord == helpWord {
-		return "", "", "", fmt.Errorf("xyz: mode words must be pairwise distinct (serve=%q mcp=%q help=%q)",
-			serve, mcpWord, helpWord)
-	}
-	return serve, mcpWord, helpWord, nil
+	return m, nil
 }
 
-// checkReserved rejects registry names whose top-level segment collides
-// with a mode keyword, because the dispatcher owns those words.
-func checkReserved(reg *registry.Registry, serve, mcpWord, helpWord string) error {
-	if reg == nil {
-		return fmt.Errorf("xyz: nil registry")
-	}
+// allWords 返回四个模式词（顺序：serve/http/mcp/help）。
+func (m modes) allWords() []string { return []string{m.serve, m.http, m.mcp, m.help} }
+
+// shadowedModes 计算哪些模式词被用户命令的顶层段遮蔽（遮蔽时裸词让位给
+// 用户命令，内建模式仅经 xyz.<词> 可达）。CLI-Skip 的命令不参与遮蔽。
+func shadowedModes(reg *registry.Registry, m modes) map[string]bool {
+	tops := map[string]bool{}
 	for _, name := range reg.Names() {
+		if e, _ := reg.Get(name); e != nil && e.CLI.Skip {
+			continue
+		}
 		top, _, _ := strings.Cut(name, ".")
-		switch top {
-		case serve, mcpWord, helpWord:
-			return fmt.Errorf("xyz: command %q: top-level name %q is reserved for mode dispatch", name, top)
+		tops[top] = true
+	}
+	out := map[string]bool{}
+	for _, w := range m.allWords() {
+		out[w] = tops[w]
+	}
+	return out
+}
+
+// matchMode 把首个 token 映射到内建模式：namespaced "xyz.<词>" 恒命中；
+// 裸词仅在未被用户命令遮蔽时命中。
+func matchMode(token string, m modes, shadowed map[string]bool) modeKind {
+	switch token {
+	case "xyz." + m.serve:
+		return modeServe
+	case "xyz." + m.http:
+		return modeHTTP
+	case "xyz." + m.mcp:
+		return modeMCP
+	case "xyz." + m.help:
+		return modeHelp
+	}
+	switch {
+	case token == m.serve && !shadowed[m.serve]:
+		return modeServe
+	case token == m.http && !shadowed[m.http]:
+		return modeHTTP
+	case token == m.mcp && !shadowed[m.mcp]:
+		return modeMCP
+	case token == m.help && !shadowed[m.help]:
+		return modeHelp
+	}
+	return modeNone
+}
+
+// hasHelpFlag 报告 args 中（"--" 之前）是否出现 -h/--help。
+func hasHelpFlag(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if a == "-h" || a == "--help" {
+			return true
 		}
 	}
-	return nil
+	return false
+}
+
+// runHelp 实现 `help` 模式：裸 help → 总览；help <模式> → 模式帮助；
+// help <命令路径> → 该命令的详细帮助（委托 CLI 的 -h，点分或空格分隔皆可）。
+func runHelp(reg *registry.Registry, rest []string, m modes, shadowed map[string]bool, cfg Config) int {
+	if len(rest) == 0 {
+		printOverview(os.Stdout, reg, m, shadowed, cfg)
+		return 0
+	}
+	if kind := matchMode(rest[0], m, shadowed); kind != modeNone {
+		if kind == modeHelp {
+			printOverview(os.Stdout, reg, m, shadowed, cfg)
+			return 0
+		}
+		return printModeHelp(kind, m, cfg)
+	}
+	// 命令路径：把每个 token 再按 "." 拆分（help user.add 与 help user add 等价），
+	// 追加 -h 交给 CLI 前端打印该节点的详细帮助。
+	var path []string
+	for _, r := range rest {
+		path = append(path, strings.Split(r, ".")...)
+	}
+	if cfg.Capabilities.NoCLI {
+		logx.Warnf("%s", langx.Tf("warn.no_cli", m.mcp, m.serve))
+		return 1
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runCLI(ctx, reg, append(path, "-h"), cfg)
+}
+
+// printModeHelp 打印某个模式的帮助（用途 + 旗标），不起服务。
+func printModeHelp(kind modeKind, m modes, cfg Config) int {
+	switch kind {
+	case modeServe:
+		fmt.Fprintln(os.Stdout, langx.Tf("mode_help.serve", m.serve))
+	case modeHTTP:
+		fmt.Fprintln(os.Stdout, langx.Tf("mode_help.http", m.http))
+	case modeMCP:
+		fmt.Fprintln(os.Stdout, langx.Tf("mode_help.mcp", m.mcp))
+	case modeHelp:
+		fmt.Fprintln(os.Stdout, langx.Tf("mode_help.help", m.help))
+	}
+	return 0
 }

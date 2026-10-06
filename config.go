@@ -12,9 +12,14 @@ import (
 // 命令行 --xyz.* 与各模式的裸名 flag 优先级高于这里的字段值。
 
 // ModeWords renames the built-in mode keywords. Fields left empty keep
-// their defaults (serve, mcp, help).
+// their defaults (serve, http, mcp, help). Each word also has an
+// always-available, help-hidden namespaced form "xyz.<word>" that survives a
+// collision with a user command (xyz-spec §13.1): when a user command's
+// top-level segment equals a mode word, the bare word routes to the user's
+// command and the built-in mode stays reachable only via "xyz.<word>".
 type ModeWords struct {
-	Serve string // 默认 "serve"
+	Serve string // 默认 "serve"：HTTP REST + /openapi.json + /mcp（合体）
+	HTTP  string // 默认 "http"：仅 HTTP REST + /openapi.json（单独 HTTP 接口，不挂 /mcp）
 	MCP   string // 默认 "mcp"
 	Help  string // 默认 "help"
 }
