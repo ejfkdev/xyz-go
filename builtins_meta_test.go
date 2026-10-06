@@ -104,4 +104,12 @@ func TestStripXYZFormat(t *testing.T) {
 	if _, err := stripXYZFlags([]string{"--xyz.format=xml"}, &Config{}); err == nil {
 		t.Fatalf("expected error for invalid --xyz.format")
 	}
+	// auto 合法，且 --xyz.format 标记 formatFromFlag（命令行层，高于逐命令 hint）。
+	var cfg3 Config
+	if _, err := stripXYZFlags([]string{"--xyz.format=auto"}, &cfg3); err != nil {
+		t.Fatalf("stripXYZFlags: %v", err)
+	}
+	if cfg3.Format != "auto" || !cfg3.formatFromFlag {
+		t.Fatalf("Format=%q formatFromFlag=%v, want auto/true", cfg3.Format, cfg3.formatFromFlag)
+	}
 }

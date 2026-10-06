@@ -149,16 +149,18 @@ func stripXYZFlags(args []string, cfg *Config) ([]string, error) {
 			if v, err := value(); err != nil {
 				return nil, err
 			} else if !validOutputFormat(v) {
-				return nil, fmt.Errorf("invalid --xyz.format %q (want text|json|jsonl|markdown)", v)
+				return nil, fmt.Errorf("invalid --xyz.format %q (want auto|text|json|jsonl|markdown)", v)
 			} else {
 				cfg.Format = v
+				cfg.formatFromFlag = true
 			}
 		case strings.HasPrefix(a, "--xyz.format="):
 			v := strings.TrimPrefix(a, "--xyz.format=")
 			if !validOutputFormat(v) {
-				return nil, fmt.Errorf("invalid --xyz.format %q (want text|json|jsonl|markdown)", v)
+				return nil, fmt.Errorf("invalid --xyz.format %q (want auto|text|json|jsonl|markdown)", v)
 			}
 			cfg.Format = v
+			cfg.formatFromFlag = true
 		default:
 			out = append(out, a)
 		}
@@ -212,7 +214,7 @@ func mergeHeaderFlag(cfg *Config, flag string) error {
 // 重新链进来。两处若增删格式须同步。
 func validOutputFormat(f string) bool {
 	switch f {
-	case "", "text", "json", "jsonl", "markdown":
+	case "", "auto", "text", "json", "jsonl", "markdown":
 		return true
 	default:
 		return false

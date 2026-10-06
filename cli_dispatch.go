@@ -13,8 +13,13 @@ import (
 const cliFrontend = true
 
 // runCLI 把子命令模式交给 CLI 前端。ctx 流向被调用的 handler（优雅关停）；
-// cfg.Format（来自 --xyz.format）作为默认输出格式注入前端。构建时加
-// -tags nocli 可剔除该前端。
+// cfg 的格式配置（--xyz.format / Config.Format 及 auto 的交互/管道解析对）
+// 注入前端。构建时加 -tags nocli 可剔除该前端。
 func runCLI(ctx context.Context, reg *registry.Registry, args []string, cfg Config) int {
-	return cli.RunContextWithOptions(ctx, reg, args, cli.Options{Format: cfg.Format})
+	return cli.RunContextWithOptions(ctx, reg, args, cli.Options{
+		Format:            cfg.Format,
+		FormatInteractive: cfg.FormatInteractive,
+		FormatPiped:       cfg.FormatPiped,
+		FormatFromFlag:    cfg.formatFromFlag,
+	})
 }

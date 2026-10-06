@@ -82,6 +82,24 @@ func runApp(t *testing.T, app *App, args ...string) (string, string, int) {
 	var out, errb bytes.Buffer
 	app.out = &out
 	app.errOut = &errb
+	// 既有断言针对人类可读的 text 渲染（= auto 的交互式解析目标）。测试用
+	// bytes.Buffer 非 TTY，会被判为管道；这里显式强制 interactive，让这些
+	// 用例继续走 text 路径。管道（jsonl）路径见 runAppPiped。
+	tr := true
+	app.interactiveOverride = &tr
+	code := app.Run(args)
+	return out.String(), errb.String(), code
+}
+
+// runAppPiped 模拟非交互式（管道/被程序调用）：auto 解析到 FormatPiped
+//（默认 jsonl）。用于验证 TTY 感知的默认格式切换。
+func runAppPiped(t *testing.T, app *App, args ...string) (string, string, int) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	app.out = &out
+	app.errOut = &errb
+	f := false
+	app.interactiveOverride = &f
 	code := app.Run(args)
 	return out.String(), errb.String(), code
 }

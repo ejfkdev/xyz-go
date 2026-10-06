@@ -52,6 +52,11 @@ type CliHints struct {
 	Before string
 	After  string
 	Fields map[string]CliFieldHint // per-field CLI configuration
+	// Format 覆盖本命令的默认 CLI 输出格式（auto|text|json|jsonl|markdown）。
+	// 空 = 沿用全局 Config.Format。优先级低于命令行 --format/--xyz.format、
+	// 高于全局代码配置（xyz-spec §10.7）。设具体值即钉死该命令的输出形态；
+	// 设 auto（或留空且全局为 auto）则按 stdout 是否 TTY 解析。
+	Format string
 	// Output 自定义该命令的 CLI 结果渲染（富文本/彩色等），替代默认
 	// Render；--json 机器模式仍优先（见 spec/output.go 的契约说明）。
 	Output CLIOutputFunc

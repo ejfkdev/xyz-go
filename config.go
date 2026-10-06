@@ -86,10 +86,22 @@ type Config struct {
 	// serverInfo.name / _meta.xyz.app_name。空则回退到二进制basename。
 	Name string
 
-	// Format 是 CLI 的默认输出格式（text|json|jsonl|markdown），等价于在
-	// 命令行传 --xyz.format=<值>；空的 Format 由命令行的 --xyz.format /
-	// 裸 --format / --json 覆盖，都没有则为 text。仅作用于 CLI 通道。
+	// Format 是 CLI 的全局默认输出格式：auto|text|json|jsonl|markdown。
+	// auto（默认，空值等价）= 按 stdout 是否交互式终端解析为 FormatInteractive
+	// / FormatPiped。命令行 --xyz.format=<值> 写入本字段并标记为「来自命令行」
+	//（优先级高于逐命令的 CliHints.Format）；裸 --format/--json 更高于本字段。
 	Format string
+
+	// FormatInteractive / FormatPiped 是 Format=auto 时两种上下文各自的具体
+	// 格式。空则用内置默认：交互式 text（对齐表格/键值，人类最清晰）、
+	// 非交互式 jsonl（每行一条紧凑 JSON，被程序调用时最易解析）。仅代码配置，
+	// 不设命令行旗标（命令行用 --xyz.format 直接钉死具体格式即可）。
+	FormatInteractive string
+	FormatPiped       string
+
+	// formatFromFlag 标记 Format 是否来自命令行 --xyz.format（内部用）：
+	// 命令行层优先级高于逐命令 CliHints.Format；代码设置的 Format 则低于它。
+	formatFromFlag bool
 
 	// ResponseHeaders 是附加到每个 HTTP 响应的自定义静态头（键值原样写入，
 	// 不做规范化）；MCP 侧作为每次调用结果 _meta.xyz.headers 透出。

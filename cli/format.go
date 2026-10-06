@@ -16,19 +16,22 @@ import (
 //（json/jsonl/markdown）绕过命令的 CLIOutputFunc，text（默认）才进入
 // Output > §12.7 信封投影 > Render 链。
 
-// FormatText / FormatJSON / FormatJSONL / FormatMarkdown 是 --format 的合法
-// 取值常量（空字符串等价 FormatText）。
+// FormatAuto / FormatText / FormatJSON / FormatJSONL / FormatMarkdown 是
+// --format 的合法取值常量。FormatAuto（"" 等价）= 按 stdout 是否交互式
+// 终端（TTY）自动选择：交互式用 FormatInteractive（默认 text），非交互式
+//（管道/重定向/被程序调用）用 FormatPiped（默认 jsonl）。
 const (
+	FormatAuto     = "auto"
 	FormatText     = "text"
 	FormatJSON     = "json"
 	FormatJSONL    = "jsonl"
 	FormatMarkdown = "markdown"
 )
 
-// ValidFormat 报告 f 是否为合法的 --format 取值（"" 视为 text）。
+// ValidFormat 报告 f 是否为合法的 --format 取值（"" 视为 auto）。
 func ValidFormat(f string) bool {
 	switch f {
-	case "", FormatText, FormatJSON, FormatJSONL, FormatMarkdown:
+	case "", FormatAuto, FormatText, FormatJSON, FormatJSONL, FormatMarkdown:
 		return true
 	default:
 		return false

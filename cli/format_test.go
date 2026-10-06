@@ -254,3 +254,92 @@ func TestCLIFormatConflictYieldsToCommand(t *testing.T) {
 		t.Fatalf("global json + command format: out=%q", out2)
 	}
 }
+
+// auto 默认按 TTY 解析：交互式 → text（对齐表格），管道 → jsonl（每行紧凑 JSON）。
+func TestCLIAutoFormatTTYAware(t *testing.T) {
+	outI, _, codeI := runApp(t, buildApp(t), "user", "list")
+	if codeI != 0 || !strings.Contains(outI, "alice") || strings.Contains(outI, "{") {
+		t.Fatalf("interactive auto should be a text table: code=%d out=%q", codeI, outI)
+	}
+	outP, _, codeP := runAppPiped(t, buildApp(t), "user", "list")
+	if codeP != 0 {
+		t.Fatalf("piped code=%d out=%q", codeP, outP)
+	}
+	lines := strings.Split(strings.TrimRight(outP, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("piped auto should be jsonl (2 lines), got %d: %q", len(lines), outP)
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &m); err != nil {
+		t.Fatalf("piped line not JSON: %v (%q)", err, lines[0])
+	}
+}
+
+// 显式 --format auto 同样按 TTY 解析。
+func TestCLIFormatAutoExplicit(t *testing.T) {
+	outI, _, codeI := runApp(t, buildApp(t), "user", "list", "--format", "auto")
+	if codeI != 0 || strings.Contains(outI, "{") || !strings.Contains(outI, "alice") {
+		t.Fatalf("interactive --format auto → text: code=%d out=%q", codeI, outI)
+	}
+	outP, _, codeP := runAppPiped(t, buildApp(t), "user", "list", "--format", "auto")
+	if codeP != 0 || !strings.Contains(outP, `{"`) {
+		t.Fatalf("piped --format auto → jsonl: code=%d out=%q", codeP, outP)
+	}
+}
+
+// 四层优先级：裸 --format > --xyz.format(fromFlag) > CliHints.Format > Config.Format > auto。
+func TestCLIFormatPrecedence(t *testing.T) {
+	reg := registry.New()
+	type pResp struct {
+		V string `json:"v"`
+	}
+	if _, err := spec.Define("p.get", func(_ context.Context, in *listArgs) (*pResp, error) {
+		return &pResp{V: "x"}, nil
+	}).CLI(spec.CliHints{Format: FormatMarkdown}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	// 逐命令 markdown 压过代码级全局 json（specific > general）。
+	appGlobal, err := NewWithOptions(reg, Options{Format: FormatJSON})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, _, _ := runApp(t, appGlobal, "p", "get"); !strings.Contains(out, "| Field | Value |") {
+		t.Fatalf("per-command markdown should beat code-global json: %q", out)
+	}
+	// --xyz.format=json（命令行全局，fromFlag）压过逐命令 markdown（命令行 > 代码）。
+	appFlag, err := NewWithOptions(reg, Options{Format: FormatJSON, FormatFromFlag: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, _, _ := runApp(t, appFlag, "p", "get"); !strings.Contains(out, `"v"`) {
+		t.Fatalf("--xyz.format(fromFlag) json should beat per-command markdown: %q", out)
+	}
+	// 裸 --format jsonl 压过一切。
+	if out, _, _ := runApp(t, appFlag, "p", "get", "--format", "jsonl"); strings.TrimRight(out, "\n") != `{"v":"x"}` {
+		t.Fatalf("bare --format jsonl should win: %q", out)
+	}
+}
+
+// Config.FormatPiped 自定义 auto 的管道解析目标（交互式仍用默认 text）。
+func TestCLIFormatPipedConfig(t *testing.T) {
+	reg := registry.New()
+	type pResp struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+	if _, err := spec.Define("p.get", func(_ context.Context, in *listArgs) (*pResp, error) {
+		return &pResp{Name: "bob", Age: 9}, nil
+	}).Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	app, err := NewWithOptions(reg, Options{FormatPiped: FormatMarkdown})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outI, _, _ := runApp(t, app, "p", "get"); strings.Contains(outI, "| Field |") {
+		t.Fatalf("interactive should stay text, got markdown: %q", outI)
+	}
+	if outP, _, _ := runAppPiped(t, app, "p", "get"); !strings.Contains(outP, "| name | bob |") {
+		t.Fatalf("piped should use configured markdown: %q", outP)
+	}
+}
