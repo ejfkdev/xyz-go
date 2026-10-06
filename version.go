@@ -4,7 +4,7 @@ package xyz
 // 手工同步（见 RELEASING.md），用于 HTTP 的 X-XYZ-Version 响应头与 MCP 的
 // _meta.xyz.sdk_version / serverInfo，让调用方知道是哪个 xyz 构建在服务。
 // 这与「使用 xyz 的应用程序自己的版本」是两回事——后者见 Version。
-const SDKVersion = "0.4.2"
+const SDKVersion = "0.4.4"
 
 // Version 是*应用程序*（用 xyz 构建的那个程序）的版本，由根派发器的
 // -v/--version、HTTP 的 X-App-Version 响应头与 MCP 的 serverInfo.version /

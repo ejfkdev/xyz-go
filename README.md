@@ -50,6 +50,10 @@ $ example mcp stdio                   # MCP: every command becomes a tool (stdio
 - **Dependency hygiene**: the core packages (spec / registry / errors / cli / httpapi / root) have **zero third-party dependencies**; the only third-party tree is the official MCP SDK, removable wholesale with `-tags nomcp` (smallest trimmed build ≈ 3.9M).
 - **Protocol versions under control**: MCP speaks the five spec revisions from 2024-11-05 to 2026-07-28; `--versions` pins the subset. Tools also carry a reflection-generated `outputSchema` (OpenAPI response schemas share the same source).
 - **Production-friendly**: SIGINT/SIGTERM graceful shutdown (context flows into handlers), `/healthz` probe, gzip, CLI help with inline `(default …)`/`(env …)`/`(oneof …)` hints, and `completion bash|zsh|fish`.
+- **Four modes + namespacing**: CLI, `serve` (REST + `/mcp`), `http` (standalone REST), `mcp`; every mode word also has an always-available `xyz.<word>` form, and a user command that collides with a mode word simply shadows its bare form (no registration error). `help <command>` and `serve -h`/`mcp -h` give per-command and per-mode help.
+- **TTY-aware output**: `--format auto` (the default) renders aligned tables interactively and compact `jsonl` when piped; `text`/`json`/`jsonl`/`markdown` selectable globally, per command, or per invocation.
+- **Rich errors**: optional business `Code`, structured `Detail` and HTTP `Status` override on top of the Kind taxonomy, rendered as one shared `{"error","kind","code","detail"}` body across all three channels.
+- **Server context & environment API**: HTTP `X-App-*`/`X-XYZ-*` headers and MCP `_meta.xyz` report the application identity (distinct from the xyz SDK version); `xyz.Language()/Interactive()/NoColor()/Env()` expose the runtime environment, and HTTP resolves a per-request language from `Accept-Language`.
 
 ## Install
 
@@ -104,31 +108,37 @@ explicit flag > env fallback > interface default > global tag default (Invoke fi
 
 Mechanism: each frontend injects its own overrides (`Entry.CLIDefaults()/HTTPDefaults()/MCPDefaults()`) before calling `Invoke`, which then applies global tag defaults — one pipeline, drift-free. MCP's overrides also replace `default` in `inputSchema` (the schema is MCP's contract).
 
-## Three modes
+## Four modes
 
 ```
-example [command] [args]          CLI: subcommand tree, shorthands/aliases/-h/-v/--json/positionals/env
+example [command] [args]          CLI: subcommand tree, shorthands/aliases/-h/-v/--format/positionals/env
 example serve --addr :8080        HTTP: REST routes + /openapi.json + /mcp on the same port
+example http  --addr :8080        HTTP: REST routes + /openapi.json only (standalone HTTP, no /mcp)
 example mcp stdio|sse|http        MCP: official SDK, three transports (--versions pins revisions)
+example help [command|mode]       detailed help for a command (help user.add) or a mode (help serve)
 example completion bash|zsh|fish  Built-in shell completion scripts
 ```
 
-**CLI** (pure standard library): registry name `user.add` becomes the two-level subcommand `user add`; `-h/--help` prints per-command help (with inline `(default …)`/`(env …)`/`(oneof …)` hints), `-v/--version` prints the version (`xyz.Version`, injectable via `-ldflags "-X github.com/ejfkdev/xyz-go.Version=v1.2.3"`).
+**CLI** (pure standard library): registry name `user.add` becomes the two-level subcommand `user add`; `-h/--help` prints per-command help (with inline `(default …)`/`(env …)`/`(oneof …)` hints), `-v/--version` prints `<app-name> version <app-version>` (`Config.Version`/`Config.Name`, or `xyz.Version` injectable via `-ldflags "-X github.com/ejfkdev/xyz-go.Version=v1.2.3"`). `help <path>` prints any command's detailed help (`help user.add` == `help user add` == `user add -h`).
 
-**HTTP** (pure standard library): routes come straight from `HTTPHints{Method, Path}` (`{name}` is a path parameter); fields without an `http:` tag bind from the query string by default, a JSON body merges as the argument base; the error taxonomy maps to status codes (400/401/403/404/409/500) with `{"error":"..."}` bodies; `GET /openapi.json` serves an OpenAPI 3 document from the same `InputSchema` (response schemas included); `GET /healthz` probes liveness and `Accept-Encoding: gzip` is answered transparently. Commands without HTTP hints are not routed.
+**HTTP** (pure standard library): two entry points — `serve` (REST + `/openapi.json` + the streamable-HTTP `/mcp` endpoint on one port) and `http` (REST + `/openapi.json` only, the standalone HTTP interface). Routes come straight from `HTTPHints{Method, Path}` (`{name}` is a path parameter); fields without an `http:` tag bind from the query string by default, a JSON body merges as the argument base; the error taxonomy maps to status codes with the enriched `{"error","kind","code","detail"}` body (§Error taxonomy); `GET /openapi.json` serves an OpenAPI 3 document from the same `InputSchema`; `GET /healthz` probes liveness; `Accept-Encoding: gzip` and `Accept-Language` are honoured. Commands without HTTP hints are not routed.
 
-**MCP** (official SDK): commands become tools; `tools/list` serves the reflection-generated `inputSchema` **and `outputSchema`**; success returns dual content — `structuredContent` (bare JSON) + `textContent` (the CLI-style rendering); failures return `isError: true` with the classified message. Supported spec revisions: `2024-11-05`, `2025-03-26`, `2025-06-18`, `2025-11-25`, `2026-07-28` (the newest is the handshake-free `server/discover` era); built-in constraints: SSE serves ≤2025-11-25 only, streamable HTTP needs `--stateless` for 2026-07-28.
+**MCP** (official SDK): commands become tools; `tools/list` serves the reflection-generated `inputSchema` **and `outputSchema`**; success returns dual content — `structuredContent` (bare JSON) + `textContent` (the CLI-style rendering); failures return `isError: true` with the classified message. Supported spec revisions: `2024-11-05` … `2026-07-28`; SSE serves ≤2025-11-25 only, streamable HTTP needs `--stateless` for 2026-07-28. `mcp -h` prints mode help.
 
-### Response rendering (envelope-free)
+**Mode words, namespacing & shadowing.** The four mode words (`serve`/`http`/`mcp`/`help`) are renamable via `Config.Modes`. Each also has an always-available, help-hidden namespaced form `xyz.<word>` (`xyz.serve`, `xyz.http`, `xyz.mcp`, `xyz.help`). If one of *your* commands' top-level segment equals a mode word, the bare word routes to **your** command and the built-in mode stays reachable via `xyz.<word>` — registering such a command is allowed (no more "reserved name" error). `serve -h`/`http -h`/`mcp -h` print that mode's help instead of starting it.
 
-| Return type | CLI | `--json` / HTTP / MCP structuredContent |
+### Output formats (`--format`, TTY-aware)
+
+`--format auto|text|json|jsonl|markdown` selects the CLI rendering; `--json` is an alias for `--format json`. The default `auto` resolves by whether stdout is a terminal: **interactive → `text`** (aligned tables / key-value), **piped / redirected / called by another program → `jsonl`** (one compact JSON record per line). Both halves are configurable (`Config.FormatInteractive` / `Config.FormatPiped`), per command via `CliHints.Format`, globally via `Config.Format` / `--xyz.format`, and per invocation via `--format`. Precedence: bare `--format` > `--xyz.format` > `CliHints.Format` > `Config.Format` > `auto`. `markdown` renders `| Field | Value |` / column tables with cell escaping. In machine formats a command error is written to **stderr** as the enriched error object; stdout never carries errors.
+
+| Return type | `text` (interactive default) | `json`/`jsonl`/HTTP/MCP structuredContent |
 |---|---|---|
 | `nil` / nil pointer | nothing | JSON `null` |
 | `string` / `bool` / numbers | bare value, one line | bare JSON value |
 | `time.Time` | RFC3339 | RFC3339 string |
-| `[]scalars` | one per line | JSON array |
+| `[]scalars` | one per line (`jsonl`: one per line) | JSON array |
 | `struct` | aligned `key  value` columns | JSON object |
-| `[]struct` | aligned table (header + rule) | JSON array |
+| `[]struct` | aligned table (header + rule) | JSON array (`jsonl`: one object per line) |
 | `map` | sorted key/value pairs | JSON object |
 
 ### Per-channel output functions (custom rendering)
@@ -185,15 +195,27 @@ Handlers return `errs "github.com/ejfkdev/xyz-go/errors"` and one classification
 | `unavailable` | 503 | 1 | -32603 |
 | unclassified (falls back to `internal`) | 500 | 1 | -32603 |
 
+**Rich errors (optional layers).** Beyond `Kind`, an error can carry a free-form business `Code`, structured `Detail`, and an HTTP `Status` override — attached with chainable builders, and rendered identically on all three channels as the shared body `{"error","kind","code","detail"}` (the flat `{"error":"..."}` shape is retained for code-less errors, so it is backward-compatible):
+
+```go
+return errors.New("boom")                                   // simplest: classified internal
+return errs.NotFound("user %s", id)                          // with a Kind
+return errs.NotFound("user %s", id).                         // + business code + detail + status override
+       WithCode("USER_NOT_FOUND").WithDetail("user_id", id).WithStatus(410)
+return errs.Wrap(errs.KindUnavailable, err).WithCode("DB_DOWN")
+```
+
+Per-Kind shortcuts (`errs.InvalidInput/Unauthorized/Forbidden/NotFound/Conflict/Canceled/Unavailable/Internal`) each return a chainable `*CodedError`; extractors `errs.From/Code/Detail/StatusFor/RPCCodeFor` read them back. `Code`/`Detail` never change the Kind mapping (only `Status` overrides the HTTP code). Delivery: HTTP writes the body compactly; the CLI in `json`/`jsonl` writes it to stderr; MCP keeps the message in `textContent` and puts `kind`/`code`/`detail` under `_meta.xyz.error`.
+
 ## Configuration: mode words & capability switches
 
 All dispatch configuration lives in `xyz.Config`; the zero value means defaults. Chain style uses `.Configure(cfg)`, functional style uses `MainConfig`/`RunConfig`:
 
 ```go
 xyz.MainConfig(xyz.Config{
-	// serve/mcp/help are reserved words; renaming releases the old words for use as commands
-	Modes: xyz.ModeWords{Serve: "httpd", MCP: "protocol", Help: "assist"},
-	// disabling a channel removes only its runtime path: mcp/serve/help/-v always survive
+	// serve/http/mcp/help are mode words; renaming releases the old words for use as commands
+	Modes: xyz.ModeWords{Serve: "httpd", HTTP: "rest", MCP: "protocol", Help: "assist"},
+	// disabling a channel removes only its runtime path: mcp/serve/http/help/-v always survive
 	Capabilities: xyz.Capabilities{NoCLI: true, NoMCP: true, NoHTTP: true},
 })
 ```
@@ -213,6 +235,9 @@ The library's own settings live in `xyz.Config` fields and the `--xyz.*` command
 | `--tls-cert/--tls-key` | `Config.CertFile/KeyFile` | serve switches to TLS when both are given |
 | `--cors=https://a,b` (or `*`) | `Config.CORSOrigins` | CORS allowlist for serve and MCP http/sse; OPTIONS preflights answer before auth (browser preflights carry no credentials) |
 | `--session-timeout=30m` (mcp only) | `mcp.Options.SessionTimeout` | Idle-session expiry for streamable HTTP (the SDK's SessionTimeout) |
+| `--xyz.format=auto\|text\|json\|jsonl\|markdown` | `Config.Format` | CLI default output format; `auto` resolves by TTY (§Output formats). Command-line global tier — outranked only by a bare `--format`/`--json` |
+| `--xyz.header k=v` (repeatable) | `Config.ResponseHeaders` | Static context headers on every HTTP response, mirrored into MCP `_meta.xyz.headers` |
+| `--xyz.no-server-headers` | `Config.NoServerHeaders` | Suppress the automatic `X-App-*`/`X-XYZ-*` headers and MCP `_meta.xyz`; user `--xyz.header` values still apply |
 
 ```bash
 example serve --bearer=s3cret                        # REST/openapi/mcp all require credentials
@@ -241,6 +266,49 @@ xyz.MainConfig(xyz.Config{
 
 Error taxonomy messages (§8) stay English; user content (summaries,
 descriptions, help blocks) is never translated.
+
+**Per-request language (HTTP).** The HTTP frontend also resolves a language per
+request from `Accept-Language` (highest-`q` supported tag: `zh*`→zh-CN,
+`en*`→en; absent/unsupported → the process default). Framework-generated
+response messages (e.g. the invalid-JSON-body 400) are emitted in that
+language, and the handler can read it via `xyz.LanguageFromCtx(ctx)` to
+localize its own output. This is per-request and independent of the
+process-level CLI language.
+
+## Server context & runtime environment
+
+**Application identity vs. the xyz SDK version.** Two distinct versions are
+reported. Set the application's with `Config.Name`/`Config.Version` (or
+`-ldflags "-X github.com/ejfkdev/xyz-go.Version=..."`); the xyz library's own
+version is `xyz.SDKVersion`.
+
+- **HTTP response headers** (on by default; `Config.NoServerHeaders` /
+  `--xyz.no-server-headers` suppresses the automatic ones): `X-App-Name`,
+  `X-App-Version` (the application), `X-XYZ-Version` (the xyz SDK),
+  `X-XYZ-Command`, `X-XYZ-Duration-Ms`, plus your `Config.ResponseHeaders` /
+  `--xyz.header k=v` statics. Identity/static headers reach every route
+  (incl. `/healthz`, `/openapi.json`, `/mcp`); command/duration are per-route.
+- **MCP**: `serverInfo.name`/`version` = the application identity, and every
+  result carries `_meta.xyz` `{app_name, app_version, sdk_version, command,
+  duration_ms, headers, error}` (`NoServerMeta` suppresses `xyz` only).
+
+**Runtime environment context** — public accessors so handlers, custom `Output`
+functions, middleware and the host program can query the resolved environment
+without re-probing (the TTY probe lives in the `termx` leaf package, shared by
+the format axis and the reserved colour/style axis):
+
+```go
+xyz.Language() string          // "en" | "zh-CN"
+xyz.Interactive() bool         // is os.Stdout a TTY
+xyz.NoColor() bool             // NO_COLOR set or TERM=dumb
+xyz.Env() xyz.EnvContext       // {Language, Interactive, NoColor} snapshot
+xyz.LanguageFromCtx(ctx)       // per-request language (HTTP Accept-Language)
+```
+
+`ExecContext.Interactive` carries the same verdict into CLI middleware/Output.
+Format and colour are two orthogonal axes sharing this one TTY probe: a
+`NO_COLOR` terminal still gets the interactive *format*; piping to `less -R`
+can force colour while the *format* stays the piped default.
 
 ## Command channels, daemons & composable dispatch
 
@@ -339,14 +407,17 @@ Size breakdown (stripped): Go's runtime floor ≈1.1M (self-contained static lin
 
 | Package | Responsibility | Dependencies |
 |---|---|---|
-| `/` (root package `xyz`) | fluent Builder, mode dispatch, capability switches, built-in parameters (`--xyz.*`), version | stdlib |
-| `/spec` | generic definition, field reflection, decode pipeline, validation, JSON Schema | stdlib |
+| `/` (root package `xyz`) | fluent Builder, mode dispatch (serve/http/mcp/help + `xyz.` namespacing & shadowing), capability switches, built-in parameters (`--xyz.*`), version, runtime environment context (`Env`/`Language`/`Interactive`/`NoColor`) | stdlib |
+| `/spec` | generic definition, field reflection, decode pipeline, validation, JSON Schema, per-channel hints (incl. `CliHints.Format`, `Output`) | stdlib |
 | `/registry` | command table: registration, conflict checks, the default singleton | stdlib |
-| `/errors` | error taxonomy and three-interface mappings | stdlib |
-| `/cli` | CLI frontend: command tree, flag parsing, help, completion | stdlib |
-| `/httpapi` | HTTP frontend: routing, binding, middleware, openapi.json | stdlib |
+| `/errors` | error taxonomy (Kind + Code/Detail/Status), chainable builders, the shared error body, three-interface mappings | stdlib |
+| `/cli` | CLI frontend: command tree, flag parsing, help, completion, `--format` (auto/TTY-aware), rendering | stdlib |
+| `/httpapi` | HTTP frontend: routing, binding, middleware (Bearer/CORS/gzip/server-context headers), Accept-Language, openapi.json | stdlib |
+| `/block` | §12.7 content-block envelope (text/image) + strict detection, projected by all three frontends | stdlib |
+| `/langx` | i18n: language enum, env detection, process + per-context (Accept-Language) catalogs, Accept-Language parsing | stdlib |
+| `/termx` | terminal/environment probe (TTY, NO_COLOR) shared by the format and style axes | stdlib |
 | `/logx` | leveled diagnostics to stderr (`xyz[level]:` prefix) | stdlib |
-| `/mcp` | MCP frontend: three transports, protocol versions | official SDK |
+| `/mcp` | MCP frontend: three transports, protocol versions, `_meta.xyz` server context | official SDK |
 | `/cmd/example`, `/cmd/tour` | showcase & internal tour | — |
 
 ## Design principles
