@@ -76,8 +76,11 @@ type CliFieldHint struct {
 // binding locations can live on the http tags or here in Fields, with the
 // same merge semantics as CliHints.
 type HTTPHints struct {
-	Method  string        // GET, POST, ...
-	Path    string        // route pattern, e.g. "/users"
+	// Method 是路由的 HTTP 方法：空 = 默认同时注册 GET 与 POST（GET 绑定
+	// query、POST 绑定 body+query，走同一处理器）；单个方法（"POST"）或逗号
+	// 分隔列表（"GET,POST,PUT"）钉住具体方法。
+	Method  string        // 空 = GET+POST；或 "GET" / "GET,POST,PUT"
+	Path    string        // route pattern, e.g. "/users"（有 Path 即参与路由）
 	Timeout time.Duration // per-request override; 0 keeps the frontend default
 	// Skip 从 HTTP 通道整体移除该命令：不注册路由、不进 /openapi.json。
 	// 比「不给 Method/Path」更声明式（适合只适合 CLI 的命令）。
@@ -104,6 +107,16 @@ type MCPHints struct {
 	// value decouples the tool name from the CLI/HTTP naming, so prefixes
 	// and namespaces can differ per channel.
 	Name string
+	// Title is a human-friendly display name for the tool (carried as the
+	// MCP annotations.title). Empty falls back to a `title:…` annotation
+	// string, then to none.
+	Title string
+	// Description overrides the tool description. Empty keeps the §3.3 merge
+	// of the command's Summary + Description.
+	Description string
+	// Meta is arbitrary per-tool metadata merged into the tool's reserved
+	// `_meta` object (nil = none).
+	Meta map[string]any
 	// Annotations e.g. "read", "write", "destructive".
 	Annotations []string
 	Fields      map[string]MCPFieldHint // per-field MCP configuration
@@ -118,6 +131,10 @@ type MCPHints struct {
 // MCPFieldHint is Define-time per-field configuration for the MCP frontend.
 type MCPFieldHint struct {
 	Default any // MCP-only default; also replaces the global default in the generated input schema
+	// Description overrides this field's description in the generated MCP
+	// inputSchema (and thus the tool's parameter docs). Empty keeps the
+	// shared `desc` tag.
+	Description string
 }
 
 // Define starts a command definition. name must match

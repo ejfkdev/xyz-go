@@ -120,6 +120,9 @@ func applyMCPHint(f *FieldMeta, key string, h MCPFieldHint) error {
 		}
 		f.MCP.Default = d
 	}
+	if h.Description != "" {
+		f.MCP.Description = h.Description
+	}
 	return nil
 }
 

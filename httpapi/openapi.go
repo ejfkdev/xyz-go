@@ -13,48 +13,86 @@ import (
 	"github.com/ejfkdev/xyz-go/spec"
 )
 
-func registerOpenAPI(mux *http.ServeMux, reg *registry.Registry) {
+func registerOpenAPI(mux *http.ServeMux, reg *registry.Registry, meta ResponseMeta) {
 	mux.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, _ *http.Request) {
 		paths := map[string]any{}
-		var order []string
+		type opKey struct{ path, method string }
+		var order []opKey
 		for _, e := range reg.All() {
-			if e.HTTP.Method == "" || e.HTTP.Path == "" {
+			if e.HTTP.Skip || e.CLI.Daemon {
 				continue
 			}
-			order = append(order, e.HTTP.Path+" "+e.HTTP.Method)
+			for _, m := range httpMethods(e) {
+				order = append(order, opKey{e.HTTP.Path, m})
+			}
 		}
-		sort.Strings(order)
-		for _, key := range order {
-			path, method, _ := strings.Cut(key, " ")
-			e, _ := entryFor(reg, path, method)
-			op, ok := paths[path].(map[string]any)
+		sort.Slice(order, func(i, j int) bool {
+			if order[i].path != order[j].path {
+				return order[i].path < order[j].path
+			}
+			return order[i].method < order[j].method
+		})
+		for _, k := range order {
+			e, ok := entryFor(reg, k.path, k.method)
 			if !ok {
+				continue
+			}
+			op, _ := paths[k.path].(map[string]any)
+			if op == nil {
 				op = map[string]any{}
-				paths[path] = op
+				paths[k.path] = op
 			}
 			opMethod := map[string]any{}
 			if e.Summary != "" {
 				opMethod["summary"] = e.Summary
 			}
+			if e.Description != "" {
+				opMethod["description"] = e.Description
+			}
+			// 参数：path/query/header 字段，复用 InputSchema 的富逐字段 schema
+			//（类型/描述/enum/default/format），而非裸类型。未标注 http 位置
+			// 的字段默认 query（与 §11.2 绑定一致）。
+			props := map[string]*spec.Schema{}
+			if e.InputSchema != nil && e.InputSchema.Properties != nil {
+				props = e.InputSchema.Properties
+			}
 			var params []any
 			for _, f := range e.Root.Fields {
-				if f.Skip || (f.HTTP.Location != "path" && f.HTTP.Location != "query") {
+				if f.Skip {
 					continue
 				}
-				params = append(params, map[string]any{
+				loc := f.HTTP.Location
+				if loc == "" {
+					loc = "query"
+				}
+				if loc != "path" && loc != "query" && loc != "header" {
+					continue
+				}
+				p := map[string]any{
 					"name":     httpName(f),
-					"in":       f.HTTP.Location,
-					"required": f.Required,
-					"schema":   map[string]any{"type": schemaType(f)},
-				})
+					"in":       loc,
+					"required": f.Required || loc == "path",
+				}
+				sch := props[f.JSONName]
+				desc := f.Description
+				if sch != nil {
+					p["schema"] = sch
+					if sch.Description != "" {
+						desc = sch.Description
+					}
+				} else {
+					p["schema"] = map[string]any{"type": schemaType(f)}
+				}
+				if desc != "" {
+					p["description"] = desc
+				}
+				params = append(params, p)
 			}
 			if len(params) > 0 {
 				opMethod["parameters"] = params
 			}
-			switch {
-			case method == http.MethodGet || method == http.MethodHead || method == http.MethodDelete:
-				// 无请求体
-			case method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch:
+			switch k.method {
+			case http.MethodPost, http.MethodPut, http.MethodPatch:
 				opMethod["requestBody"] = map[string]any{
 					"content": map[string]any{
 						"application/json": map[string]any{"schema": json.RawMessage(schemaJSON(e))},
@@ -75,11 +113,20 @@ func registerOpenAPI(mux *http.ServeMux, reg *registry.Registry) {
 				"404": map[string]any{"description": errs.KindNotFound},
 				"500": map[string]any{"description": errs.KindInternal},
 			}
-			op[strings.ToLower(method)] = opMethod
+			op[strings.ToLower(k.method)] = opMethod
+		}
+		// info 用应用身份（与 X-App-Name/X-App-Version 同源）；未设置回退参考值。
+		title := meta.AppName
+		if title == "" {
+			title = "example service"
+		}
+		version := meta.AppVersion
+		if version == "" {
+			version = "1"
 		}
 		doc := map[string]any{
 			"openapi": "3.0.3",
-			"info":    map[string]any{"title": "example service", "version": "1"},
+			"info":    map[string]any{"title": title, "version": version},
 			"paths":   paths,
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -89,10 +136,17 @@ func registerOpenAPI(mux *http.ServeMux, reg *registry.Registry) {
 	})
 }
 
+// entryFor 按 path + method 找到入口；method 匹配该入口的 httpMethods 集合
+//（含默认 GET+POST）。
 func entryFor(reg *registry.Registry, path, method string) (*spec.Entry, bool) {
 	for _, e := range reg.All() {
-		if e.HTTP.Path == path && e.HTTP.Method == method {
-			return e, true
+		if e.HTTP.Skip || e.CLI.Daemon || e.HTTP.Path != path {
+			continue
+		}
+		for _, m := range httpMethods(e) {
+			if m == method {
+				return e, true
+			}
 		}
 	}
 	return nil, false

@@ -65,6 +65,9 @@ type HTTPField struct {
 // MCPField holds the field-level bindings the MCP frontend reads.
 type MCPField struct {
 	Default any // MCP-only default; also replaces the global default in the input schema
+	// Description overrides the field's description in the generated MCP
+	// inputSchema (empty keeps the shared `desc` tag).
+	Description string
 }
 
 // analyzeStruct walks an argument struct and fills node.Fields.

@@ -164,6 +164,10 @@ func toolName(e *spec.Entry) string {
 }
 
 func toolDescription(e *spec.Entry) string {
+	// 逐命令覆盖优先；否则用 §3.3 的 summary + description 合并。
+	if e.MCP.Description != "" {
+		return e.MCP.Description
+	}
 	if e.Summary != "" && e.Description != "" {
 		return e.Summary + "\n\n" + e.Description
 	}

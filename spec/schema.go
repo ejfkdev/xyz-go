@@ -43,15 +43,15 @@ func buildSchema(root *FieldMeta) *Schema {
 func fieldSchema(f *FieldMeta) *Schema {
 	switch {
 	case f.Type == byteSliceTyp:
-		return decorated(f, &Schema{Type: "string", Description: f.Description})
+		return decorated(f, &Schema{Type: "string", Description: effectiveDescription(f)})
 	case f.Type == durationType:
-		return decorated(f, &Schema{Type: "string", Format: "duration", Description: f.Description})
+		return decorated(f, &Schema{Type: "string", Format: "duration", Description: effectiveDescription(f)})
 	case f.Type == timeType:
-		return decorated(f, &Schema{Type: "string", Format: "date-time", Description: f.Description})
+		return decorated(f, &Schema{Type: "string", Format: "date-time", Description: effectiveDescription(f)})
 	case f.Kind == reflect.Ptr:
 		s := fieldSchema(f.Elem)
-		if f.Description != "" {
-			s.Description = f.Description
+		if effectiveDescription(f) != "" {
+			s.Description = effectiveDescription(f)
 		}
 		if d := effectiveDefault(f); d != nil {
 			s.Default = d
@@ -61,14 +61,14 @@ func fieldSchema(f *FieldMeta) *Schema {
 		}
 		return s
 	case f.Kind == reflect.Slice:
-		s := &Schema{Type: "array", Description: f.Description}
+		s := &Schema{Type: "array", Description: effectiveDescription(f)}
 		s.Items = fieldSchema(f.Elem)
 		if d := effectiveDefault(f); d != nil {
 			s.Default = d
 		}
 		return s
 	case f.Kind == reflect.Struct:
-		s := &Schema{Type: "object", Description: f.Description, Properties: map[string]*Schema{}}
+		s := &Schema{Type: "object", Description: effectiveDescription(f), Properties: map[string]*Schema{}}
 		var required []string
 		for _, c := range f.Fields {
 			if c.Skip {
@@ -86,13 +86,13 @@ func fieldSchema(f *FieldMeta) *Schema {
 	default:
 		switch {
 		case isIntKind(f.Kind) || isUintKind(f.Kind):
-			return decorated(f, &Schema{Type: "integer", Description: f.Description})
+			return decorated(f, &Schema{Type: "integer", Description: effectiveDescription(f)})
 		case isFloatKind(f.Kind):
-			return decorated(f, &Schema{Type: "number", Description: f.Description})
+			return decorated(f, &Schema{Type: "number", Description: effectiveDescription(f)})
 		case f.Kind == reflect.Bool:
-			return decorated(f, &Schema{Type: "boolean", Description: f.Description})
+			return decorated(f, &Schema{Type: "boolean", Description: effectiveDescription(f)})
 		default:
-			return decorated(f, &Schema{Type: "string", Description: f.Description})
+			return decorated(f, &Schema{Type: "string", Description: effectiveDescription(f)})
 		}
 	}
 }
@@ -157,6 +157,16 @@ func effectiveDefault(f *FieldMeta) any {
 		return f.MCP.Default
 	}
 	return f.Default
+}
+
+// effectiveDescription 同理：MCP 逐字段描述覆盖优先于共享 `desc` tag。
+// InputSchema 是 MCP 工具的契约，OpenAPI 参数 schema 复用它，故覆盖对两者
+// 一致生效。
+func effectiveDescription(f *FieldMeta) string {
+	if f.MCP.Description != "" {
+		return f.MCP.Description
+	}
+	return f.Description
 }
 
 func isIntKind(k reflect.Kind) bool {

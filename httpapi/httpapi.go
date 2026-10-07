@@ -92,29 +92,53 @@ func HandlerWithMeta(reg *registry.Registry, defaults map[string]string, meta Re
 		if e.HTTP.Skip || e.CLI.Daemon {
 			continue // 通道层面整体移除；Daemon 只属于 CLI
 		}
-		if e.HTTP.Method == "" || e.HTTP.Path == "" {
-			continue // 该命令没有声明 HTTP 路由（CLI/MCP 专用）
+		methods := httpMethods(e)
+		if len(methods) == 0 {
+			continue // 无 HTTP path：该命令不路由（CLI/MCP 专用）
 		}
-		if err := registerSafe(mux, e, defaults, meta); err != nil {
-			return nil, err
+		for _, m := range methods {
+			if err := registerSafe(mux, e, m, defaults, meta); err != nil {
+				return nil, err
+			}
 		}
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_, _ = w.Write([]byte(`{"status":"ok"}` + "\n"))
 	})
-	registerOpenAPI(mux, reg)
+	registerOpenAPI(mux, reg, meta)
 	return mux, nil
 }
 
+// httpMethods 返回该入口路由的 HTTP 方法集：解析 HTTPHints.Method（逗号
+// 分隔、大写归一），空则默认 GET+POST（xyz-spec §11.1）；无 Path 返回 nil
+//（不路由）。
+func httpMethods(e *spec.Entry) []string {
+	if e.HTTP.Path == "" {
+		return nil
+	}
+	if raw := strings.TrimSpace(e.HTTP.Method); raw != "" {
+		var out []string
+		for _, m := range strings.Split(raw, ",") {
+			if m = strings.ToUpper(strings.TrimSpace(m)); m != "" {
+				out = append(out, m)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return []string{http.MethodGet, http.MethodPost}
+}
+
 // registerSafe 用 recover 把标准库 mux 的路由冲突 panic 转成注册期错误。
-func registerSafe(mux *http.ServeMux, e *spec.Entry, defaults map[string]string, meta ResponseMeta) (err error) {
+func registerSafe(mux *http.ServeMux, e *spec.Entry, method string, defaults map[string]string, meta ResponseMeta) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("httpapi: route %q %q conflicts with an existing route", e.HTTP.Method, e.HTTP.Path)
+			err = fmt.Errorf("httpapi: route %q %q conflicts with an existing route", method, e.HTTP.Path)
 		}
 	}()
-	mux.HandleFunc(e.HTTP.Method+" "+e.HTTP.Path, makeHTTPHandler(e, defaults, meta))
+	mux.HandleFunc(method+" "+e.HTTP.Path, makeHTTPHandler(e, defaults, meta))
 	return nil
 }
 

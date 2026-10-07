@@ -131,11 +131,23 @@ func Server(reg *registry.Registry, opts Options) (*sdkmcp.Server, error) {
 		if err != nil {
 			return nil, fmt.Errorf("mcp: tool %q: %w", e.Name, err)
 		}
+		ann := parseAnnotations(e)
+		// MCPHints.Title 是人类友好显示名（承载为 annotations.title）；显式
+		// Title 字段优先于 "title:…" 注解字符串。
+		if e.MCP.Title != "" {
+			if ann == nil {
+				ann = &sdkmcp.ToolAnnotations{}
+			}
+			ann.Title = e.MCP.Title
+		}
 		tool := &sdkmcp.Tool{
 			Name:        toolName(e),
 			Description: toolDescription(e),
 			InputSchema: json.RawMessage(schemaJSON),
-			Annotations: parseAnnotations(e),
+			Annotations: ann,
+		}
+		if len(e.MCP.Meta) > 0 {
+			tool.Meta = e.MCP.Meta // 逐工具自定义 _meta
 		}
 		if e.OutputSchema != nil {
 			if outJSON, err := json.Marshal(e.OutputSchema); err == nil {
