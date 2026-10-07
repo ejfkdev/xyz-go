@@ -1,6 +1,6 @@
 # Conformance — xyz-go
 
-Specification target: [xyz-spec](https://github.com/ejfkdev/xyz-spec) **v0.4.4**.
+Specification target: [xyz-spec](https://github.com/ejfkdev/xyz-spec) **v0.4.5**.
 
 Status: **conformant (baseline anchor)** — xyz-go is one of the two reference
 implementations the specification was written from; where ambiguous, Go
